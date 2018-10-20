@@ -12,20 +12,20 @@ pub const Message = struct.{
     args: [5]usize,
     payload: ?[]const u8,
 
-    pub fn from(mailbox_id: *const MailboxId) Message {
+    pub fn from(mailbox_id: MailboxId) Message {
         return Message.{
             .sender = MailboxId.Undefined,
-            .receiver = mailbox_id.*,
+            .receiver = mailbox_id,
             .code = undefined,
             .args = undefined,
             .payload = null,
         };
     }
 
-    pub fn to(mailbox_id: *const MailboxId, msg_code: usize, args: ...) Message {
+    pub fn to(mailbox_id: MailboxId, msg_code: usize, args: ...) Message {
         var message = Message.{
             .sender = MailboxId.This,
-            .receiver = mailbox_id.*,
+            .receiver = mailbox_id,
             .code = msg_code,
             .args = undefined,
             .payload = null,
@@ -40,9 +40,9 @@ pub const Message = struct.{
         return message;
     }
 
-    pub fn as(self: *const Message, sender: *const MailboxId) Message {
+    pub fn as(self: *const Message, sender: MailboxId) Message {
         var message = self.*;
-        message.sender = sender.*;
+        message.sender = sender;
         return message;
     }
 
@@ -150,8 +150,8 @@ pub fn receive(destination: *Message) void {
     _ = syscall1(Syscall.receive, @ptrToInt(destination));
 }
 
-pub fn subscribeIRQ(irq: u8, mailbox_id: *const MailboxId) void {
-    _ = syscall2(Syscall.subscribeIRQ, irq, @ptrToInt(mailbox_id));
+pub fn subscribeIRQ(irq: u8, mailbox_id: MailboxId) void {
+    _ = syscall2(Syscall.subscribeIRQ, irq, mailbox_id);
 }
 
 pub fn inb(port: u16) u8 {
