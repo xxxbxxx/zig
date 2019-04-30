@@ -18,7 +18,7 @@ var c_allocator_state = Allocator{
 };
 
 fn cRealloc(self: *Allocator, old_mem: []u8, old_align: u29, new_size: usize, new_align: u29) ![]u8 {
-    assert(new_align <= @alignOf(c_longdouble));
+    if (new_align > @alignOf(c_longdouble)) return error.OutOfMemory;
     const old_ptr = if (old_mem.len == 0) null else @ptrCast(*c_void, old_mem.ptr);
     const buf = c.realloc(old_ptr, new_size) orelse return error.OutOfMemory;
     return @ptrCast([*]u8, buf)[0..new_size];
@@ -143,7 +143,7 @@ pub const DirectAllocator = struct {
                 const result = try alloc(allocator, new_size, new_align);
                 if (old_mem.len != 0) {
                     @memcpy(result.ptr, old_mem.ptr, std.math.min(old_mem.len, result.len));
-                  _ = os.posix.munmap(@ptrToInt(old_mem.ptr), old_mem.len);
+                    _ = os.posix.munmap(@ptrToInt(old_mem.ptr), old_mem.len);
                 }
                 return result;
             },
@@ -155,12 +155,12 @@ pub const DirectAllocator = struct {
                 const old_record_addr = old_adjusted_addr + old_mem.len;
                 const root_addr = @intToPtr(*align(1) usize, old_record_addr).*;
                 const old_ptr = @intToPtr(*c_void, root_addr);
-                
-                if(new_size == 0) {
+
+                if (new_size == 0) {
                     if (os.windows.HeapFree(self.heap_handle.?, 0, old_ptr) == 0) unreachable;
                     return old_mem[0..0];
                 }
-                
+
                 const amt = new_size + new_align + @sizeOf(usize);
                 const new_ptr = os.windows.HeapReAlloc(
                     self.heap_handle.?,
@@ -178,11 +178,7 @@ pub const DirectAllocator = struct {
                     // or the memory starting at the old offset would be outside of the new allocation,
                     // then we need to copy the memory to a valid aligned address and use that
                     const new_aligned_addr = mem.alignForward(new_root_addr, new_align);
-                    @memcpy(
-                        @intToPtr([*]u8, new_aligned_addr),
-                        @intToPtr([*]u8, new_adjusted_addr),
-                        std.math.min(old_mem.len, new_size),
-                    );
+                    @memcpy(@intToPtr([*]u8, new_aligned_addr), @intToPtr([*]u8, new_adjusted_addr), std.math.min(old_mem.len, new_size));
                     new_adjusted_addr = new_aligned_addr;
                 }
                 const new_record_addr = new_adjusted_addr + new_size;
@@ -209,7 +205,7 @@ pub const ArenaAllocator = struct {
         return ArenaAllocator{
             .allocator = Allocator{
                 .reallocFn = realloc,
-                .shrinkFn = shrink,
+                .shrinkFn = null,
             },
             .child_allocator = child_allocator,
             .buffer_list = std.LinkedList([]u8).init(),
@@ -231,8 +227,7 @@ pub const ArenaAllocator = struct {
         const actual_min_size = minimum_size + @sizeOf(BufNode);
         var len = prev_len;
         while (true) {
-            len += len / 2;
-            len += os.page_size - @rem(len, os.page_size);
+            len = mem.alignForward(len + len / 2, os.page_size);
             if (len >= actual_min_size) break;
         }
         const buf = try self.child_allocator.alignedAlloc(u8, @alignOf(BufNode), len);
@@ -248,8 +243,10 @@ pub const ArenaAllocator = struct {
         return buf_node;
     }
 
-    fn alloc(allocator: *Allocator, n: usize, alignment: u29) ![]u8 {
+    fn realloc(allocator: *Allocator, old_mem: []u8, old_align: u29, n: usize, alignment: u29) ![]u8 {
         const self = @fieldParentPtr(ArenaAllocator, "allocator", allocator);
+
+        assert(old_mem.len == 0); // because shrinkFn == null
 
         var cur_node = if (self.buffer_list.last) |last_node| last_node else try self.createNode(0, n + alignment);
         while (true) {
@@ -267,21 +264,6 @@ pub const ArenaAllocator = struct {
             return result;
         }
     }
-
-    fn realloc(allocator: *Allocator, old_mem: []u8, old_align: u29, new_size: usize, new_align: u29) ![]u8 {
-        if (new_size <= old_mem.len and new_align <= new_size) {
-            // We can't do anything with the memory, so tell the client to keep it.
-            return error.OutOfMemory;
-        } else {
-            const result = try alloc(allocator, new_size, new_align);
-            @memcpy(result.ptr, old_mem.ptr, std.math.min(old_mem.len, result.len));
-            return result;
-        }
-    }
-
-    fn shrink(allocator: *Allocator, old_mem: []u8, old_align: u29, new_size: usize, new_align: u29) []u8 {
-        return old_mem[0..new_size];
-    }
 };
 
 pub const FixedBufferAllocator = struct {
@@ -293,15 +275,17 @@ pub const FixedBufferAllocator = struct {
         return FixedBufferAllocator{
             .allocator = Allocator{
                 .reallocFn = realloc,
-                .shrinkFn = shrink,
+                .shrinkFn = null,
             },
             .buffer = buffer,
             .end_index = 0,
         };
     }
 
-    fn alloc(allocator: *Allocator, n: usize, alignment: u29) ![]u8 {
+    fn realloc(allocator: *Allocator, old_mem: []u8, old_align: u29, n: usize, alignment: u29) ![]u8 {
         const self = @fieldParentPtr(FixedBufferAllocator, "allocator", allocator);
+        assert(old_mem.len == 0); // because shrinkFn == null
+
         const addr = @ptrToInt(self.buffer.ptr) + self.end_index;
         const adjusted_addr = mem.alignForward(addr, alignment);
         const adjusted_index = self.end_index + (adjusted_addr - addr);
@@ -314,39 +298,14 @@ pub const FixedBufferAllocator = struct {
 
         return result;
     }
-
-    fn realloc(allocator: *Allocator, old_mem: []u8, old_align: u29, new_size: usize, new_align: u29) ![]u8 {
-        const self = @fieldParentPtr(FixedBufferAllocator, "allocator", allocator);
-        assert(old_mem.len <= self.end_index);
-        if (old_mem.ptr == self.buffer.ptr + self.end_index - old_mem.len and
-            mem.alignForward(@ptrToInt(old_mem.ptr), new_align) == @ptrToInt(old_mem.ptr))
-        {
-            const start_index = self.end_index - old_mem.len;
-            const new_end_index = start_index + new_size;
-            if (new_end_index > self.buffer.len) return error.OutOfMemory;
-            const result = self.buffer[start_index..new_end_index];
-            self.end_index = new_end_index;
-            return result;
-        } else if (new_size <= old_mem.len and new_align <= old_align) {
-            // We can't do anything with the memory, so tell the client to keep it.
-            return error.OutOfMemory;
-        } else {
-            const result = try alloc(allocator, new_size, new_align);
-            @memcpy(result.ptr, old_mem.ptr, std.math.min(old_mem.len, result.len));
-            return result;
-        }
-    }
-
-    fn shrink(allocator: *Allocator, old_mem: []u8, old_align: u29, new_size: usize, new_align: u29) []u8 {
-        return old_mem[0..new_size];
-    }
 };
 
-// FIXME: Exposed LLVM intrinsics is a bug
+// TODO: Exposed LLVM intrinsics is a bug
 // See: https://github.com/ziglang/zig/issues/2291
 extern fn @"llvm.wasm.memory.size.i32"(u32) u32;
 extern fn @"llvm.wasm.memory.grow.i32"(u32, u32) i32;
 
+/// TODO Currently this allocator does not actually reclaim memory, but it should.
 pub const wasm_allocator = &wasm_allocator_state.allocator;
 var wasm_allocator_state = WasmAllocator{
     .allocator = Allocator{
@@ -433,11 +392,11 @@ const WasmAllocator = struct {
     }
 };
 
+/// Lock free
 pub const ThreadSafeFixedBufferAllocator = blk: {
     if (builtin.single_threaded) {
         break :blk FixedBufferAllocator;
     } else {
-        // lock free
         break :blk struct {
             allocator: Allocator,
             end_index: usize,
@@ -447,14 +406,15 @@ pub const ThreadSafeFixedBufferAllocator = blk: {
                 return ThreadSafeFixedBufferAllocator{
                     .allocator = Allocator{
                         .reallocFn = realloc,
-                        .shrinkFn = shrink,
+                        .shrinkFn = null,
                     },
                     .buffer = buffer,
                     .end_index = 0,
                 };
             }
 
-            fn alloc(allocator: *Allocator, n: usize, alignment: u29) ![]u8 {
+            fn realloc(allocator: *Allocator, old_mem: []u8, old_align: u29, n: usize, alignment: u29) ![]u8 {
+                assert(old_mem.len == 0); // because shrinkFn == null
                 const self = @fieldParentPtr(ThreadSafeFixedBufferAllocator, "allocator", allocator);
                 var end_index = @atomicLoad(usize, &self.end_index, builtin.AtomicOrder.SeqCst);
                 while (true) {
@@ -467,21 +427,6 @@ pub const ThreadSafeFixedBufferAllocator = blk: {
                     }
                     end_index = @cmpxchgWeak(usize, &self.end_index, end_index, new_end_index, builtin.AtomicOrder.SeqCst, builtin.AtomicOrder.SeqCst) orelse return self.buffer[adjusted_index..new_end_index];
                 }
-            }
-
-            fn realloc(allocator: *Allocator, old_mem: []u8, old_align: u29, new_size: usize, new_align: u29) ![]u8 {
-                if (new_size <= old_mem.len and new_align <= old_align) {
-                    // We can't do anything useful with the memory, tell the client to keep it.
-                    return error.OutOfMemory;
-                } else {
-                    const result = try alloc(allocator, new_size, new_align);
-                    @memcpy(result.ptr, old_mem.ptr, std.math.min(old_mem.len, result.len));
-                    return result;
-                }
-            }
-
-            fn shrink(allocator: *Allocator, old_mem: []u8, old_align: u29, new_size: usize, new_align: u29) []u8 {
-                return old_mem[0..new_size];
             }
         };
     }
