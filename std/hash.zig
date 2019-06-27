@@ -14,9 +14,12 @@ const siphash = @import("hash/siphash.zig");
 pub const SipHash64 = siphash.SipHash64;
 pub const SipHash128 = siphash.SipHash128;
 
+pub const wyhash = @import("hash/wyhash.zig").hash;
+
 test "hash" {
     _ = @import("hash/adler.zig");
     _ = @import("hash/crc.zig");
     _ = @import("hash/fnv.zig");
     _ = @import("hash/siphash.zig");
+    _ = @import("hash/wyhash.zig");
 }

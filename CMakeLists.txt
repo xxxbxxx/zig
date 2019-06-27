@@ -522,6 +522,7 @@ set(ZIG_STD_FILES
     "hash/crc.zig"
     "hash/fnv.zig"
     "hash/siphash.zig"
+    "hash/wyhash.zig"
     "hash_map.zig"
     "heap.zig"
     "heap/logging_allocator.zig"
