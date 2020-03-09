@@ -484,85 +484,25 @@ pub const File = struct {
         }
     }
 
-    pub fn inStream(file: File) InStream {
-        return InStream{
-            .file = file,
-            .stream = InStream.Stream{ .readFn = InStream.readFn },
-        };
+    pub fn inStream(file: File) io.InStream {
+        return @implement(io.InStream, file, .{
+            read = File.read,
+        });
     }
 
-    pub fn outStream(file: File) OutStream {
-        return OutStream{
-            .file = file,
-            .stream = OutStream.Stream{ .writeFn = OutStream.writeFn },
-        };
+    pub fn outStream(file: File) io.OutStream {
+        return @implement(io.OutStream, file, .{
+            .write = File.write,
+        });
     }
 
-    pub fn seekableStream(file: File) SeekableStream {
-        return SeekableStream{
-            .file = file,
-            .stream = SeekableStream.Stream{
-                .seekToFn = SeekableStream.seekToFn,
-                .seekByFn = SeekableStream.seekByFn,
-                .getPosFn = SeekableStream.getPosFn,
-                .getEndPosFn = SeekableStream.getEndPosFn,
-            },
-        };
+
+    pub fn seekableStream(file: File) io.SeekableStream {
+        return @implement(io.SeekableStream, file, .{
+            .seekTo = File.seekTo,
+            .seekBy = File.seekBy,
+            .getPos = File.getPos,
+            .getEndPos = File.getEndPos,
+        });
     }
-
-    /// Implementation of io.InStream trait for File
-    pub const InStream = struct {
-        file: File,
-        stream: Stream,
-
-        pub const Error = ReadError;
-        pub const Stream = io.InStream(Error);
-
-        fn readFn(in_stream: *Stream, buffer: []u8) Error!usize {
-            const self = @fieldParentPtr(InStream, "stream", in_stream);
-            return self.file.read(buffer);
-        }
-    };
-
-    /// Implementation of io.OutStream trait for File
-    pub const OutStream = struct {
-        file: File,
-        stream: Stream,
-
-        pub const Error = WriteError;
-        pub const Stream = io.OutStream(Error);
-
-        fn writeFn(out_stream: *Stream, bytes: []const u8) Error!usize {
-            const self = @fieldParentPtr(OutStream, "stream", out_stream);
-            return self.file.write(bytes);
-        }
-    };
-
-    /// Implementation of io.SeekableStream trait for File
-    pub const SeekableStream = struct {
-        file: File,
-        stream: Stream,
-
-        pub const Stream = io.SeekableStream(SeekError, GetPosError);
-
-        pub fn seekToFn(seekable_stream: *Stream, pos: u64) SeekError!void {
-            const self = @fieldParentPtr(SeekableStream, "stream", seekable_stream);
-            return self.file.seekTo(pos);
-        }
-
-        pub fn seekByFn(seekable_stream: *Stream, amt: i64) SeekError!void {
-            const self = @fieldParentPtr(SeekableStream, "stream", seekable_stream);
-            return self.file.seekBy(amt);
-        }
-
-        pub fn getEndPosFn(seekable_stream: *Stream) GetPosError!u64 {
-            const self = @fieldParentPtr(SeekableStream, "stream", seekable_stream);
-            return self.file.getEndPos();
-        }
-
-        pub fn getPosFn(seekable_stream: *Stream) GetPosError!u64 {
-            const self = @fieldParentPtr(SeekableStream, "stream", seekable_stream);
-            return self.file.getPos();
-        }
-    };
 };

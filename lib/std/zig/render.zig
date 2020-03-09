@@ -12,57 +12,52 @@ pub const Error = error{
 };
 
 /// Returns whether anything changed
-pub fn render(allocator: *mem.Allocator, stream: var, tree: *ast.Tree) (@TypeOf(stream).Child.Error || Error)!bool {
-    comptime assert(@typeInfo(@TypeOf(stream)) == .Pointer);
-
-    var anything_changed: bool = false;
-
+pub fn render(
+    allocator: *mem.Allocator,
+    stream: std.io.OutStream,
+    tree: *ast.Tree,
+) (@TypeOf(stream).WriteError || Error)!bool {
     // make a passthrough stream that checks whether something changed
     const MyStream = struct {
         const MyStream = @This();
-        const StreamError = @TypeOf(stream).Child.Error;
-        const Stream = std.io.OutStream(StreamError);
 
-        anything_changed_ptr: *bool,
+        anything_changed: bool,
         child_stream: @TypeOf(stream),
-        stream: Stream,
         source_index: usize,
         source: []const u8,
 
-        fn write(iface_stream: *Stream, bytes: []const u8) StreamError!usize {
-            const self = @fieldParentPtr(MyStream, "stream", iface_stream);
-
-            if (!self.anything_changed_ptr.*) {
+        fn write(self: *MyStream, bytes: []const u8) !usize {
+            if (!self.anything_changed) {
                 const end = self.source_index + bytes.len;
                 if (end > self.source.len) {
-                    self.anything_changed_ptr.* = true;
+                    self.anything_changed = true;
                 } else {
                     const src_slice = self.source[self.source_index..end];
                     self.source_index += bytes.len;
                     if (!mem.eql(u8, bytes, src_slice)) {
-                        self.anything_changed_ptr.* = true;
+                        self.anything_changed = true;
                     }
                 }
             }
 
-            return self.child_stream.writeOnce(bytes);
+            return self.child_stream.write(bytes);
         }
     };
-    var my_stream = MyStream{
-        .stream = MyStream.Stream{ .writeFn = MyStream.write },
+    var my_stream_state = MyStream{
         .child_stream = stream,
-        .anything_changed_ptr = &anything_changed,
+        .anything_changed = false,
         .source_index = 0,
         .source = tree.source,
     };
+    const my_stream = @implement(std.io.OutStream, &my_stream_state, .{ .write = MyStream.write });
 
-    try renderRoot(allocator, &my_stream.stream, tree);
+    try renderRoot(allocator, my_stream, tree);
 
-    if (!anything_changed and my_stream.source_index != my_stream.source.len) {
-        anything_changed = true;
+    if (my_stream_state.source_index != my_stream_state.source.len) {
+        my_stream_state.anything_changed = true;
     }
 
-    return anything_changed;
+    return my_stream_state.anything_changed;
 }
 
 fn renderRoot(

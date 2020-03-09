@@ -13,7 +13,7 @@ pub const page_size = switch (builtin.arch) {
     else => 4 * 1024,
 };
 
-pub const Allocator = struct {
+pub const Allocator = interface {
     pub const Error = error{OutOfMemory};
 
     /// Realloc is used to modify the size or alignment of an existing allocation,
@@ -37,7 +37,7 @@ pub const Allocator = struct {
     /// as `old_mem` was when `reallocFn` is called. The bytes of
     /// `return_value[old_mem.len..]` have undefined values.
     /// The returned slice must have its pointer aligned at least to `new_alignment` bytes.
-    reallocFn: fn (
+    fn reallocFn (
         self: *Allocator,
         /// Guaranteed to be the same as what was returned from most recent call to
         /// `reallocFn` or `shrinkFn`.
@@ -57,10 +57,10 @@ pub const Allocator = struct {
         /// Guaranteed to be a power of 2.
         /// Returned slice's pointer must have this alignment.
         new_alignment: u29,
-    ) Error![]u8,
+    ) Error![]u8;
 
     /// This function deallocates memory. It must succeed.
-    shrinkFn: fn (
+    fn shrinkFn (
         self: *Allocator,
         /// Guaranteed to be the same as what was returned from most recent call to
         /// `reallocFn` or `shrinkFn`.
@@ -73,7 +73,7 @@ pub const Allocator = struct {
         /// If `new_byte_count == 0` then this is `undefined`, otherwise:
         /// Guaranteed to be less than or equal to `old_alignment`.
         new_alignment: u29,
-    ) []u8,
+    ) []u8;
 
     /// Returns a pointer to undefined memory.
     /// Call `destroy` with the result to free the memory.
@@ -89,7 +89,7 @@ pub const Allocator = struct {
         const T = @TypeOf(ptr).Child;
         if (@sizeOf(T) == 0) return;
         const non_const_ptr = @intToPtr([*]u8, @ptrToInt(ptr));
-        const shrink_result = self.shrinkFn(self, non_const_ptr[0..@sizeOf(T)], @alignOf(T), 0, 1);
+        const shrink_result = self.shrinkFn(non_const_ptr[0..@sizeOf(T)], @alignOf(T), 0, 1);
         assert(shrink_result.len == 0);
     }
 
@@ -122,7 +122,7 @@ pub const Allocator = struct {
         }
 
         const byte_count = math.mul(usize, @sizeOf(T), n) catch return Error.OutOfMemory;
-        const byte_slice = try self.reallocFn(self, &[0]u8{}, undefined, byte_count, a);
+        const byte_slice = try self.reallocFn(&[0]u8{}, undefined, byte_count, a);
         assert(byte_slice.len == byte_count);
         @memset(byte_slice.ptr, undefined, byte_slice.len);
         if (alignment == null) {
@@ -176,7 +176,7 @@ pub const Allocator = struct {
         const old_byte_slice = mem.sliceAsBytes(old_mem);
         const byte_count = math.mul(usize, @sizeOf(T), new_n) catch return Error.OutOfMemory;
         // Note: can't set shrunk memory to undefined as memory shouldn't be modified on realloc failure
-        const byte_slice = try self.reallocFn(self, old_byte_slice, Slice.alignment, byte_count, new_alignment);
+        const byte_slice = try self.reallocFn(old_byte_slice, Slice.alignment, byte_count, new_alignment);
         assert(byte_slice.len == byte_count);
         if (new_n > old_mem.len) {
             @memset(byte_slice.ptr + old_byte_slice.len, undefined, byte_slice.len - old_byte_slice.len);
@@ -223,7 +223,7 @@ pub const Allocator = struct {
 
         const old_byte_slice = mem.sliceAsBytes(old_mem);
         @memset(old_byte_slice.ptr + byte_count, undefined, old_byte_slice.len - byte_count);
-        const byte_slice = self.shrinkFn(self, old_byte_slice, Slice.alignment, byte_count, new_alignment);
+        const byte_slice = self.shrinkFn(old_byte_slice, Slice.alignment, byte_count, new_alignment);
         assert(byte_slice.len == byte_count);
         return mem.bytesAsSlice(T, @alignCast(new_alignment, byte_slice));
     }
@@ -237,7 +237,7 @@ pub const Allocator = struct {
         if (bytes_len == 0) return;
         const non_const_ptr = @intToPtr([*]u8, @ptrToInt(bytes.ptr));
         @memset(non_const_ptr, undefined, bytes_len);
-        const shrink_result = self.shrinkFn(self, non_const_ptr[0..bytes_len], Slice.alignment, 0, 1);
+        const shrink_result = self.shrinkFn(non_const_ptr[0..bytes_len], Slice.alignment, 0, 1);
         assert(shrink_result.len == 0);
     }
 };
