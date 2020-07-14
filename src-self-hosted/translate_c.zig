@@ -1155,7 +1155,7 @@ fn transStmt(
         .StringLiteralClass => return transStringLiteral(rp, scope, @ptrCast(*const ZigClangStringLiteral, stmt), result_used),
         .ParenExprClass => {
             const expr = try transExpr(rp, scope, ZigClangParenExpr_getSubExpr(@ptrCast(*const ZigClangParenExpr, stmt)), .used, lrvalue);
-            if (expr.id == .GroupedExpression) return maybeSuppressResult(rp, scope, result_used, expr);
+            if (expr.* == .grouped_expr) return maybeSuppressResult(rp, scope, result_used, expr);
             const node = try rp.c.arena.create(ast.Node.GroupedExpression);
             node.* = .{
                 .lparen = try appendToken(rp.c, .LParen, "("),
@@ -1200,7 +1200,7 @@ fn transStmt(
         .OpaqueValueExprClass => {
             const source_expr = ZigClangOpaqueValueExpr_getSourceExpr(@ptrCast(*const ZigClangOpaqueValueExpr, stmt)).?;
             const expr = try transExpr(rp, scope, source_expr, .used, lrvalue);
-            if (expr.id == .GroupedExpression) return maybeSuppressResult(rp, scope, result_used, expr);
+            if (expr.* == .grouped_expr) return maybeSuppressResult(rp, scope, result_used, expr);
             const node = try rp.c.arena.create(ast.Node.GroupedExpression);
             node.* = .{
                 .lparen = try appendToken(rp.c, .LParen, "("),
@@ -1561,7 +1561,7 @@ fn transImplicitCastExpr(
                 return maybeSuppressResult(rp, scope, result_used, sub_expr_node);
             }
 
-            const prefix_op = try transCreateNodeSimplePrefixOp(rp.c, .AddressOf, .Ampersand, "&");
+            const prefix_op = try transCreateNodeSimplePrefixOp(rp.c, .address_of, .Ampersand, "&");
             prefix_op.rhs = try transExpr(rp, scope, sub_expr, .used, .r_value);
 
             return maybeSuppressResult(rp, scope, result_used, &prefix_op.base);
@@ -1616,7 +1616,7 @@ fn transBoolExpr(
     var res = try transExpr(rp, scope, expr, used, lrvalue);
 
     if (isBoolRes(res)) {
-        if (!grouped and res.id == .GroupedExpression) {
+        if (!grouped and res.* == .grouped_expr) {
             const group = @fieldParentPtr(ast.Node.GroupedExpression, "base", res);
             res = group.expr;
             // get zig fmt to work properly
@@ -1659,8 +1659,8 @@ fn exprIsStringLiteral(expr: *const ZigClangExpr) bool {
 }
 
 fn isBoolRes(res: *ast.Node) bool {
-    switch (res.id) {
-        .InfixOp => switch (@fieldParentPtr(ast.Node.InfixOp, "base", res).op) {
+    switch (res.*) {
+        .infix_op => switch (@fieldParentPtr(ast.Node.InfixOp, "base", res).op) {
             .BoolOr,
             .BoolAnd,
             .EqualEqual,
@@ -1673,9 +1673,9 @@ fn isBoolRes(res: *ast.Node) bool {
 
             else => {},
         },
-        .BoolNot => return true,
-        .BoolLiteral => return true,
-        .GroupedExpression => return isBoolRes(@fieldParentPtr(ast.Node.GroupedExpression, "base", res).expr),
+        .bool_not => return true,
+        .bool_literal => return true,
+        .grouped_expr => return isBoolRes(@fieldParentPtr(ast.Node.GroupedExpression, "base", res).expr),
         else => {},
     }
     return false;
@@ -2440,7 +2440,7 @@ fn transDoWhileLoop(
         },
     };
     defer cond_scope.deinit();
-    const prefix_op = try transCreateNodeSimplePrefixOp(rp.c, .BoolNot, .Bang, "!");
+    const prefix_op = try transCreateNodeSimplePrefixOp(rp.c, .bool_not, .Bang, "!");
     prefix_op.rhs = try transBoolExpr(rp, &cond_scope.base, @ptrCast(*const ZigClangExpr, ZigClangDoStmt_getCond(stmt)), .used, .r_value, true);
     _ = try appendToken(rp.c, .RParen, ")");
     if_node.condition = &prefix_op.base;
@@ -3027,7 +3027,7 @@ fn transUnaryOperator(rp: RestorePoint, scope: *Scope, stmt: *const ZigClangUnar
         else
             return transCreatePreCrement(rp, scope, stmt, .AssignSub, .MinusEqual, "-=", used),
         .AddrOf => {
-            const op_node = try transCreateNodeSimplePrefixOp(rp.c, .AddressOf, .Ampersand, "&");
+            const op_node = try transCreateNodeSimplePrefixOp(rp.c, .address_of, .Ampersand, "&");
             op_node.rhs = try transExpr(rp, scope, op_expr, used, .r_value);
             return &op_node.base;
         },
@@ -3043,7 +3043,7 @@ fn transUnaryOperator(rp: RestorePoint, scope: *Scope, stmt: *const ZigClangUnar
         .Plus => return transExpr(rp, scope, op_expr, used, .r_value),
         .Minus => {
             if (!qualTypeHasWrappingOverflow(ZigClangExpr_getType(op_expr))) {
-                const op_node = try transCreateNodeSimplePrefixOp(rp.c, .Negation, .Minus, "-");
+                const op_node = try transCreateNodeSimplePrefixOp(rp.c, .negation, .Minus, "-");
                 op_node.rhs = try transExpr(rp, scope, op_expr, .used, .r_value);
                 return &op_node.base;
             } else if (cIsUnsignedInteger(ZigClangExpr_getType(op_expr))) {
@@ -3056,12 +3056,12 @@ fn transUnaryOperator(rp: RestorePoint, scope: *Scope, stmt: *const ZigClangUnar
                 return revertAndWarn(rp, error.UnsupportedTranslation, ZigClangUnaryOperator_getBeginLoc(stmt), "C negation with non float non integer", .{});
         },
         .Not => {
-            const op_node = try transCreateNodeSimplePrefixOp(rp.c, .BitNot, .Tilde, "~");
+            const op_node = try transCreateNodeSimplePrefixOp(rp.c, .bit_not, .Tilde, "~");
             op_node.rhs = try transExpr(rp, scope, op_expr, .used, .r_value);
             return &op_node.base;
         },
         .LNot => {
-            const op_node = try transCreateNodeSimplePrefixOp(rp.c, .BoolNot, .Bang, "!");
+            const op_node = try transCreateNodeSimplePrefixOp(rp.c, .bool_not, .Bang, "!");
             op_node.rhs = try transBoolExpr(rp, scope, op_expr, .used, .r_value, true);
             return &op_node.base;
         },
@@ -3107,7 +3107,7 @@ fn transCreatePreCrement(
 
     const node = try transCreateNodeVarDecl(rp.c, false, true, ref);
     node.eq_token = try appendToken(rp.c, .Equal, "=");
-    const rhs_node = try transCreateNodeSimplePrefixOp(rp.c, .AddressOf, .Ampersand, "&");
+    const rhs_node = try transCreateNodeSimplePrefixOp(rp.c, .address_of, .Ampersand, "&");
     rhs_node.rhs = try transExpr(rp, scope, op_expr, .used, .r_value);
     node.init_node = &rhs_node.base;
     node.semicolon_token = try appendToken(rp.c, .Semicolon, ";");
@@ -3173,7 +3173,7 @@ fn transCreatePostCrement(
 
     const node = try transCreateNodeVarDecl(rp.c, false, true, ref);
     node.eq_token = try appendToken(rp.c, .Equal, "=");
-    const rhs_node = try transCreateNodeSimplePrefixOp(rp.c, .AddressOf, .Ampersand, "&");
+    const rhs_node = try transCreateNodeSimplePrefixOp(rp.c, .address_of, .Ampersand, "&");
     rhs_node.rhs = try transExpr(rp, scope, op_expr, .used, .r_value);
     node.init_node = &rhs_node.base;
     node.semicolon_token = try appendToken(rp.c, .Semicolon, ";");
@@ -3327,7 +3327,7 @@ fn transCreateCompoundAssign(
 
     const node = try transCreateNodeVarDecl(rp.c, false, true, ref);
     node.eq_token = try appendToken(rp.c, .Equal, "=");
-    const addr_node = try transCreateNodeSimplePrefixOp(rp.c, .AddressOf, .Ampersand, "&");
+    const addr_node = try transCreateNodeSimplePrefixOp(rp.c, .address_of, .Ampersand, "&");
     addr_node.rhs = try transExpr(rp, scope, lhs, .used, .l_value);
     node.init_node = &addr_node.base;
     node.semicolon_token = try appendToken(rp.c, .Semicolon, ";");
@@ -3977,7 +3977,7 @@ fn transCreateNodeFieldAccess(c: *Context, container: *ast.Node, field_name: []c
 
 fn transCreateNodeSimplePrefixOp(
     c: *Context,
-    comptime tag: ast.Node.Id,
+    comptime tag: ast.Node,
     op_tok_id: std.zig.Token.Id,
     bytes: []const u8,
 ) !*ast.Node.SimplePrefixOp(tag) {
@@ -4253,7 +4253,8 @@ fn transCreateNodeMacroFn(c: *Context, name: []const u8, ref: *ast.Node, proto_a
     const block_lbrace = try appendToken(c, .LBrace, "{");
 
     const return_expr = try transCreateNodeReturnExpr(c);
-    const unwrap_expr = try transCreateNodeUnwrapNull(c, ref.cast(ast.Node.VarDecl).?.init_node.?);
+    const init_node = ref.cast(ast.Node.VarDecl).?.init_node.?;
+    const unwrap_expr = try transCreateNodeUnwrapNull(c, init_node);
 
     const call_expr = try c.createCall(unwrap_expr, fn_params.items.len);
     const call_params = call_expr.params();
@@ -4557,12 +4558,12 @@ fn transType(rp: RestorePoint, ty: *const ZigClangType, source_loc: ZigClangSour
         .Pointer => {
             const child_qt = ZigClangType_getPointeeType(ty);
             if (qualTypeChildIsFnProto(child_qt)) {
-                const optional_node = try transCreateNodeSimplePrefixOp(rp.c, .OptionalType, .QuestionMark, "?");
+                const optional_node = try transCreateNodeSimplePrefixOp(rp.c, .optional_type, .QuestionMark, "?");
                 optional_node.rhs = try transQualType(rp, child_qt, source_loc);
                 return &optional_node.base;
             }
             if (typeIsOpaque(rp.c, ZigClangQualType_getTypePtr(child_qt), source_loc)) {
-                const optional_node = try transCreateNodeSimplePrefixOp(rp.c, .OptionalType, .QuestionMark, "?");
+                const optional_node = try transCreateNodeSimplePrefixOp(rp.c, .optional_type, .QuestionMark, "?");
                 const pointer_node = try transCreateNodePtrType(
                     rp.c,
                     ZigClangQualType_isConstQualified(child_qt),
@@ -5253,10 +5254,10 @@ fn transMacroFnDefine(c: *Context, it: *CTokenList.Iterator, source: []const u8,
             .{@tagName(last.id)},
         );
     _ = try appendToken(c, .Semicolon, ";");
-    const type_of_arg = if (expr.id != .Block) expr else blk: {
+    const type_of_arg = if (expr.* != .block) expr else blk: {
         const blk = @fieldParentPtr(ast.Node.Block, "base", expr);
         const blk_last = blk.statements()[blk.statements_len - 1];
-        std.debug.assert(blk_last.id == .ControlFlowExpression);
+        std.debug.assert(blk_last.* == .control_flow_expression);
         const br = @fieldParentPtr(ast.Node.ControlFlowExpression, "base", blk_last);
         break :blk br.rhs.?;
     };
@@ -5692,7 +5693,7 @@ fn parseCPrimaryExpr(c: *Context, it: *CTokenList.Iterator, source: []const u8, 
 
 fn macroBoolToInt(c: *Context, node: *ast.Node) !*ast.Node {
     if (!isBoolRes(node)) {
-        if (node.id != .InfixOp) return node;
+        if (node.* != .infix_op) return node;
 
         const group_node = try c.arena.create(ast.Node.GroupedExpression);
         group_node.* = .{
@@ -5711,7 +5712,7 @@ fn macroBoolToInt(c: *Context, node: *ast.Node) !*ast.Node {
 
 fn macroIntToBool(c: *Context, node: *ast.Node) !*ast.Node {
     if (isBoolRes(node)) {
-        if (node.id != .InfixOp) return node;
+        if (node.* != .infix_op) return node;
 
         const group_node = try c.arena.create(ast.Node.GroupedExpression);
         group_node.* = .{
@@ -5799,7 +5800,7 @@ fn parseCSuffixOpExpr(c: *Context, it: *CTokenList.Iterator, source: []const u8,
                     if (prev_id == .Keyword_void) {
                         const ptr = try transCreateNodePtrType(c, false, false, .Asterisk);
                         ptr.rhs = node;
-                        const optional_node = try transCreateNodeSimplePrefixOp(c, .OptionalType, .QuestionMark, "?");
+                        const optional_node = try transCreateNodeSimplePrefixOp(c, .optional_type, .QuestionMark, "?");
                         optional_node.rhs = &ptr.base;
                         return &optional_node.base;
                     } else {
@@ -5968,18 +5969,18 @@ fn parseCPrefixOpExpr(c: *Context, it: *CTokenList.Iterator, source: []const u8,
 
     switch (op_tok.id) {
         .Bang => {
-            const node = try transCreateNodeSimplePrefixOp(c, .BoolNot, .Bang, "!");
+            const node = try transCreateNodeSimplePrefixOp(c, .bool_not, .Bang, "!");
             node.rhs = try parseCPrefixOpExpr(c, it, source, source_loc, scope);
             return &node.base;
         },
         .Minus => {
-            const node = try transCreateNodeSimplePrefixOp(c, .Negation, .Minus, "-");
+            const node = try transCreateNodeSimplePrefixOp(c, .negation, .Minus, "-");
             node.rhs = try parseCPrefixOpExpr(c, it, source, source_loc, scope);
             return &node.base;
         },
         .Plus => return try parseCPrefixOpExpr(c, it, source, source_loc, scope),
         .Tilde => {
-            const node = try transCreateNodeSimplePrefixOp(c, .BitNot, .Tilde, "~");
+            const node = try transCreateNodeSimplePrefixOp(c, .bit_not, .Tilde, "~");
             node.rhs = try parseCPrefixOpExpr(c, it, source, source_loc, scope);
             return &node.base;
         },
@@ -5988,7 +5989,7 @@ fn parseCPrefixOpExpr(c: *Context, it: *CTokenList.Iterator, source: []const u8,
             return try transCreateNodePtrDeref(c, node);
         },
         .Ampersand => {
-            const node = try transCreateNodeSimplePrefixOp(c, .AddressOf, .Ampersand, "&");
+            const node = try transCreateNodeSimplePrefixOp(c, .address_of, .Ampersand, "&");
             node.rhs = try parseCPrefixOpExpr(c, it, source, source_loc, scope);
             return &node.base;
         },
@@ -6009,24 +6010,24 @@ fn tokenSlice(c: *Context, token: ast.TokenIndex) []u8 {
 }
 
 fn getContainer(c: *Context, node: *ast.Node) ?*ast.Node {
-    switch (node.id) {
-        .ContainerDecl,
-        .AddressOf,
-        .Await,
-        .BitNot,
-        .BoolNot,
-        .OptionalType,
-        .Negation,
-        .NegationWrap,
-        .Resume,
-        .Try,
-        .ArrayType,
-        .ArrayTypeSentinel,
-        .PtrType,
-        .SliceType,
+    switch (node.*) {
+        .container_decl,
+        .address_of,
+        .await_expr,
+        .bit_not,
+        .bool_not,
+        .optional_type,
+        .negation,
+        .negation_wrap,
+        .resume_stmt,
+        .try_expr,
+        .array_type,
+        .array_type_sentinel,
+        .ptr_type,
+        .slice_type,
         => return node,
 
-        .Identifier => {
+        .identifier => {
             const ident = node.cast(ast.Node.Identifier).?;
             if (c.global_scope.sym_table.get(tokenSlice(c, ident.token))) |value| {
                 if (value.cast(ast.Node.VarDecl)) |var_decl|
@@ -6034,7 +6035,7 @@ fn getContainer(c: *Context, node: *ast.Node) ?*ast.Node {
             }
         },
 
-        .InfixOp => {
+        .infix_op => {
             const infix = node.cast(ast.Node.InfixOp).?;
             if (infix.op != .Period)
                 return null;

@@ -1113,8 +1113,8 @@ fn astGenAndAnalyzeDecl(self: *Module, decl: *Decl) !bool {
     const file_scope = decl.scope.cast(Scope.File).?;
     const tree = try self.getAstTree(file_scope);
     const ast_node = tree.root_node.decls()[decl.src_index];
-    switch (ast_node.id) {
-        .FnProto => {
+    switch (ast_node.*) {
+        .fn_proto => {
             const fn_proto = @fieldParentPtr(ast.Node.FnProto, "base", ast_node);
 
             decl.analysis = .in_progress;
@@ -1276,9 +1276,9 @@ fn astGenAndAnalyzeDecl(self: *Module, decl: *Decl) !bool {
             }
             return type_changed;
         },
-        .VarDecl => @panic("TODO var decl"),
-        .Comptime => @panic("TODO comptime decl"),
-        .Use => @panic("TODO usingnamespace decl"),
+        .var_decl => @panic("TODO var decl"),
+        .comptime_expr => @panic("TODO comptime decl"),
+        .use => @panic("TODO usingnamespace decl"),
         else => unreachable,
     }
 }
@@ -1297,19 +1297,19 @@ fn analyzeBodyValueAsType(self: *Module, block_scope: *Scope.Block, body: zir.Mo
 }
 
 fn astGenExpr(self: *Module, scope: *Scope, ast_node: *ast.Node) InnerError!*zir.Inst {
-    switch (ast_node.id) {
-        .Identifier => return self.astGenIdent(scope, @fieldParentPtr(ast.Node.Identifier, "base", ast_node)),
-        .Asm => return self.astGenAsm(scope, @fieldParentPtr(ast.Node.Asm, "base", ast_node)),
-        .StringLiteral => return self.astGenStringLiteral(scope, @fieldParentPtr(ast.Node.StringLiteral, "base", ast_node)),
-        .IntegerLiteral => return self.astGenIntegerLiteral(scope, @fieldParentPtr(ast.Node.IntegerLiteral, "base", ast_node)),
-        .BuiltinCall => return self.astGenBuiltinCall(scope, @fieldParentPtr(ast.Node.BuiltinCall, "base", ast_node)),
-        .Call => return self.astGenCall(scope, @fieldParentPtr(ast.Node.Call, "base", ast_node)),
-        .Unreachable => return self.astGenUnreachable(scope, @fieldParentPtr(ast.Node.Unreachable, "base", ast_node)),
-        .ControlFlowExpression => return self.astGenControlFlowExpression(scope, @fieldParentPtr(ast.Node.ControlFlowExpression, "base", ast_node)),
-        .If => return self.astGenIf(scope, @fieldParentPtr(ast.Node.If, "base", ast_node)),
-        .InfixOp => return self.astGenInfixOp(scope, @fieldParentPtr(ast.Node.InfixOp, "base", ast_node)),
-        .BoolNot => return self.astGenBoolNot(scope, @fieldParentPtr(ast.Node.BoolNot, "base", ast_node)),
-        else => return self.failNode(scope, ast_node, "TODO implement astGenExpr for {}", .{@tagName(ast_node.id)}),
+    switch (ast_node.*) {
+        .identifier => return self.astGenIdent(scope, @fieldParentPtr(ast.Node.Identifier, "base", ast_node)),
+        .asm_expr => return self.astGenAsm(scope, @fieldParentPtr(ast.Node.Asm, "base", ast_node)),
+        .string_literal => return self.astGenStringLiteral(scope, @fieldParentPtr(ast.Node.StringLiteral, "base", ast_node)),
+        .integer_literal => return self.astGenIntegerLiteral(scope, @fieldParentPtr(ast.Node.IntegerLiteral, "base", ast_node)),
+        .builtin_call => return self.astGenBuiltinCall(scope, @fieldParentPtr(ast.Node.BuiltinCall, "base", ast_node)),
+        .call => return self.astGenCall(scope, @fieldParentPtr(ast.Node.Call, "base", ast_node)),
+        .unreachable_expr => return self.astGenUnreachable(scope, @fieldParentPtr(ast.Node.Unreachable, "base", ast_node)),
+        .control_flow_expression => return self.astGenControlFlowExpression(scope, @fieldParentPtr(ast.Node.ControlFlowExpression, "base", ast_node)),
+        .if_expr => return self.astGenIf(scope, @fieldParentPtr(ast.Node.If, "base", ast_node)),
+        .infix_op => return self.astGenInfixOp(scope, @fieldParentPtr(ast.Node.InfixOp, "base", ast_node)),
+        .bool_not => return self.astGenBoolNot(scope, @fieldParentPtr(ast.Node.BoolNot, "base", ast_node)),
+        else => return self.failNode(scope, ast_node, "TODO implement astGenExpr for {}", .{@tagName(ast_node.*)}),
     }
 }
 
@@ -1323,7 +1323,7 @@ fn astGenBoolNot(self: *Module, scope: *Scope, node: *ast.Node.BoolNot) InnerErr
 fn astGenInfixOp(self: *Module, scope: *Scope, infix_node: *ast.Node.InfixOp) InnerError!*zir.Inst {
     switch (infix_node.op) {
         .Assign => {
-            if (infix_node.lhs.id == .Identifier) {
+            if (infix_node.lhs.* == .identifier) {
                 const ident = @fieldParentPtr(ast.Node.Identifier, "base", infix_node.lhs);
                 const tree = scope.tree();
                 const ident_name = tree.tokenSlice(ident.token);

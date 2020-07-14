@@ -323,8 +323,8 @@ pub const Error = union(enum) {
         node: *Node,
 
         pub fn render(self: *const ExpectedCall, tokens: []const Token.Id, stream: anytype) !void {
-            return stream.print("expected " ++ @tagName(Node.Id.Call) ++ ", found {}", .{
-                @tagName(self.node.id),
+            return stream.print("expected " ++ @tagName(Node.call) ++ ", found {}", .{
+                @tagName(self.node.*),
             });
         }
     };
@@ -333,8 +333,8 @@ pub const Error = union(enum) {
         node: *Node,
 
         pub fn render(self: *const ExpectedCallOrFnProto, tokens: []const Token.Id, stream: anytype) !void {
-            return stream.print("expected " ++ @tagName(Node.Id.Call) ++ " or " ++
-                @tagName(Node.Id.FnProto) ++ ", found {}", .{@tagName(self.node.id)});
+            return stream.print("expected " ++ @tagName(Node.call) ++ " or " ++
+                @tagName(Node.fn_proto) ++ ", found {}", .{@tagName(self.node.*)});
         }
     };
 
@@ -395,211 +395,214 @@ pub const Error = union(enum) {
     }
 };
 
-pub const Node = struct {
-    id: Id,
+pub const Node = enum {
+    // Top level
+    root,
+    use,
+    test_decl,
 
-    pub const Id = enum {
-        // Top level
-        Root,
-        Use,
-        TestDecl,
+    // Statements
+    var_decl,
+    defer_stmt,
 
-        // Statements
-        VarDecl,
-        Defer,
+    // Operators
+    infix_op,
+    address_of,
+    await_expr,
+    bit_not,
+    bool_not,
+    optional_type,
+    negation,
+    negation_wrap,
+    resume_stmt,
+    try_expr,
+    array_type,
+    /// array_type but has a sentinel node.
+    array_type_sentinel,
+    ptr_type,
+    slice_type,
+    /// Not all suffix operations are under this tag. To save memory, some
+    /// suffix operations have dedicated Node tags.
+    suffix_op,
+    /// `T{a, b}`
+    array_initializer,
+    /// array_initializer but with `.` instead of a left-hand-side operand.
+    array_initializer_dot,
+    /// `T{.a = b}`
+    struct_initializer,
+    /// struct_initializer but with `.` instead of a left-hand-side operand.
+    struct_initializer_dot,
+    /// `foo()`
+    call,
 
-        // Operators
-        InfixOp,
-        AddressOf,
-        Await,
-        BitNot,
-        BoolNot,
-        OptionalType,
-        Negation,
-        NegationWrap,
-        Resume,
-        Try,
-        ArrayType,
-        /// ArrayType but has a sentinel node.
-        ArrayTypeSentinel,
-        PtrType,
-        SliceType,
-        /// Not all suffix operations are under this tag. To save memory, some
-        /// suffix operations have dedicated Node tags.
-        SuffixOp,
-        /// `T{a, b}`
-        ArrayInitializer,
-        /// ArrayInitializer but with `.` instead of a left-hand-side operand.
-        ArrayInitializerDot,
-        /// `T{.a = b}`
-        StructInitializer,
-        /// StructInitializer but with `.` instead of a left-hand-side operand.
-        StructInitializerDot,
-        /// `foo()`
-        Call,
+    // Control flow
+    switch_expr,
+    while_expr,
+    for_expr,
+    if_expr,
+    control_flow_expression,
+    suspend_stmt,
 
-        // Control flow
-        Switch,
-        While,
-        For,
-        If,
-        ControlFlowExpression,
-        Suspend,
+    // Type expressions
+    any_type,
+    error_type,
+    fn_proto,
+    any_frame_type,
 
-        // Type expressions
-        AnyType,
-        ErrorType,
-        FnProto,
-        AnyFrameType,
+    // Primary expressions
+    integer_literal,
+    float_literal,
+    enum_literal,
+    string_literal,
+    multiline_string_literal,
+    char_literal,
+    bool_literal,
+    null_literal,
+    undefined_literal,
+    unreachable_expr,
+    identifier,
+    grouped_expr,
+    builtin_call,
+    error_set_decl,
+    container_decl,
+    asm_expr,
+    comptime_expr,
+    nosuspend_expr,
+    block,
 
-        // Primary expressions
-        IntegerLiteral,
-        FloatLiteral,
-        EnumLiteral,
-        StringLiteral,
-        MultilineStringLiteral,
-        CharLiteral,
-        BoolLiteral,
-        NullLiteral,
-        UndefinedLiteral,
-        Unreachable,
-        Identifier,
-        GroupedExpression,
-        BuiltinCall,
-        ErrorSetDecl,
-        ContainerDecl,
-        Asm,
-        Comptime,
-        Nosuspend,
-        Block,
-
-        // Misc
-        DocComment,
-        SwitchCase,
-        SwitchElse,
-        Else,
-        Payload,
-        PointerPayload,
-        PointerIndexPayload,
-        ContainerField,
-        ErrorTag,
-        FieldInitializer,
-    };
+    // Misc
+    doc_comment,
+    switch_case,
+    switch_else,
+    else_expr,
+    payload,
+    pointer_payload,
+    pointer_index_payload,
+    container_field,
+    error_tag,
+    field_initializer,
 
     pub fn cast(base: *Node, comptime T: type) ?*T {
-        if (base.id == comptime typeToId(T)) {
+        if (base.* == comptime typeToTag(T)) {
             return @fieldParentPtr(T, "base", base);
         }
         return null;
     }
 
     pub fn iterate(base: *Node, index: usize) ?*Node {
-        inline for (@typeInfo(Id).Enum.fields) |f| {
-            if (base.id == @field(Id, f.name)) {
-                const T = @field(Node, f.name);
-                return @fieldParentPtr(T, "base", base).iterate(index);
+        inline for (@typeInfo(Node).Enum.decls) |decl| {
+            switch (decl.data) {
+                .Type => |T| {
+                    if (base.* == comptime typeToTag(T)) {
+                        return @fieldParentPtr(T, "base", base).iterate(index);
+                    }
+                },
+                else => {},
             }
         }
         unreachable;
     }
 
     pub fn firstToken(base: *const Node) TokenIndex {
-        inline for (@typeInfo(Id).Enum.fields) |f| {
-            if (base.id == @field(Id, f.name)) {
-                const T = @field(Node, f.name);
-                return @fieldParentPtr(T, "base", base).firstToken();
+        inline for (@typeInfo(Node).Enum.decls) |decl| {
+            switch (decl.data) {
+                .Type => |T| {
+                    if (base.* == comptime typeToTag(T)) {
+                        return @fieldParentPtr(T, "base", base).firstToken();
+                    }
+                },
+                else => {},
             }
         }
         unreachable;
     }
 
     pub fn lastToken(base: *const Node) TokenIndex {
-        inline for (@typeInfo(Id).Enum.fields) |f| {
-            if (base.id == @field(Id, f.name)) {
-                const T = @field(Node, f.name);
-                return @fieldParentPtr(T, "base", base).lastToken();
+        inline for (@typeInfo(Node).Enum.decls) |decl| {
+            switch (decl.data) {
+                .Type => |T| {
+                    if (base.* == comptime typeToTag(T)) {
+                        return @fieldParentPtr(T, "base", base).lastToken();
+                    }
+                },
+                else => {},
             }
         }
         unreachable;
     }
 
-    pub fn typeToId(comptime T: type) Id {
-        inline for (@typeInfo(Id).Enum.fields) |f| {
-            if (T == @field(Node, f.name)) {
-                return @field(Id, f.name);
-            }
-        }
-        unreachable;
+    pub fn typeToTag(comptime T: type) Node {
+        return std.meta.fieldInfo(T, "base").default_value.?;
     }
 
     pub fn requireSemiColon(base: *const Node) bool {
         var n = base;
         while (true) {
-            switch (n.id) {
-                .Root,
-                .ContainerField,
-                .Block,
-                .Payload,
-                .PointerPayload,
-                .PointerIndexPayload,
-                .Switch,
-                .SwitchCase,
-                .SwitchElse,
-                .FieldInitializer,
-                .DocComment,
-                .TestDecl,
+            switch (n.*) {
+                .root,
+                .container_field,
+                .block,
+                .payload,
+                .pointer_payload,
+                .pointer_index_payload,
+                .switch_expr,
+                .switch_case,
+                .switch_else,
+                .field_initializer,
+                .doc_comment,
+                .test_decl,
                 => return false,
-                .While => {
+                .while_expr => {
                     const while_node = @fieldParentPtr(While, "base", n);
                     if (while_node.@"else") |@"else"| {
                         n = &@"else".base;
                         continue;
                     }
 
-                    return while_node.body.id != .Block;
+                    return while_node.body.* != .block;
                 },
-                .For => {
+                .for_expr => {
                     const for_node = @fieldParentPtr(For, "base", n);
                     if (for_node.@"else") |@"else"| {
                         n = &@"else".base;
                         continue;
                     }
 
-                    return for_node.body.id != .Block;
+                    return for_node.body.* != .block;
                 },
-                .If => {
+                .if_expr => {
                     const if_node = @fieldParentPtr(If, "base", n);
                     if (if_node.@"else") |@"else"| {
                         n = &@"else".base;
                         continue;
                     }
 
-                    return if_node.body.id != .Block;
+                    return if_node.body.* != .block;
                 },
-                .Else => {
+                .else_expr => {
                     const else_node = @fieldParentPtr(Else, "base", n);
                     n = else_node.body;
                     continue;
                 },
-                .Defer => {
+                .defer_stmt => {
                     const defer_node = @fieldParentPtr(Defer, "base", n);
-                    return defer_node.expr.id != .Block;
+                    return defer_node.expr.* != .block;
                 },
-                .Comptime => {
+                .comptime_expr => {
                     const comptime_node = @fieldParentPtr(Comptime, "base", n);
-                    return comptime_node.expr.id != .Block;
+                    return comptime_node.expr.* != .block;
                 },
-                .Suspend => {
+                .suspend_stmt => {
                     const suspend_node = @fieldParentPtr(Suspend, "base", n);
                     if (suspend_node.body) |body| {
-                        return body.id != .Block;
+                        return body.* != .block;
                     }
 
                     return true;
                 },
-                .Nosuspend => {
+                .nosuspend_expr => {
                     const nosuspend_node = @fieldParentPtr(Nosuspend, "base", n);
-                    return nosuspend_node.expr.id != .Block;
+                    return nosuspend_node.expr.* != .block;
                 },
                 else => return true,
             }
@@ -613,7 +616,7 @@ pub const Node = struct {
                 std.debug.warn(" ", .{});
             }
         }
-        std.debug.warn("{}\n", .{@tagName(self.id)});
+        std.debug.warn("{}\n", .{@tagName(self.*)});
 
         var child_i: usize = 0;
         while (self.iterate(child_i)) |child| : (child_i += 1) {
@@ -623,7 +626,7 @@ pub const Node = struct {
 
     /// The decls data follows this struct in memory as an array of Node pointers.
     pub const Root = struct {
-        base: Node = Node{ .id = .Root },
+        base: Node = .root,
         eof_token: TokenIndex,
         decls_len: NodeIndex,
 
@@ -676,7 +679,7 @@ pub const Node = struct {
     };
 
     pub const VarDecl = struct {
-        base: Node = Node{ .id = .VarDecl },
+        base: Node = .var_decl,
         doc_comments: ?*DocComment,
         visib_token: ?TokenIndex,
         thread_local_token: ?TokenIndex,
@@ -733,7 +736,7 @@ pub const Node = struct {
     };
 
     pub const Use = struct {
-        base: Node = Node{ .id = .Use },
+        base: Node = .use,
         doc_comments: ?*DocComment,
         visib_token: ?TokenIndex,
         use_token: TokenIndex,
@@ -760,7 +763,7 @@ pub const Node = struct {
     };
 
     pub const ErrorSetDecl = struct {
-        base: Node = Node{ .id = .ErrorSetDecl },
+        base: Node = .error_set_decl,
         error_token: TokenIndex,
         rbrace_token: TokenIndex,
         decls_len: NodeIndex,
@@ -810,7 +813,7 @@ pub const Node = struct {
 
     /// The fields and decls Node pointers directly follow this struct in memory.
     pub const ContainerDecl = struct {
-        base: Node = Node{ .id = .ContainerDecl },
+        base: Node = .container_decl,
         kind_token: TokenIndex,
         layout_token: ?TokenIndex,
         lbrace_token: TokenIndex,
@@ -879,7 +882,7 @@ pub const Node = struct {
     };
 
     pub const ContainerField = struct {
-        base: Node = Node{ .id = .ContainerField },
+        base: Node = .container_field,
         doc_comments: ?*DocComment,
         comptime_token: ?TokenIndex,
         name_token: TokenIndex,
@@ -930,7 +933,7 @@ pub const Node = struct {
     };
 
     pub const ErrorTag = struct {
-        base: Node = Node{ .id = .ErrorTag },
+        base: Node = .error_tag,
         doc_comments: ?*DocComment,
         name_token: TokenIndex,
 
@@ -955,7 +958,7 @@ pub const Node = struct {
     };
 
     pub const Identifier = struct {
-        base: Node = Node{ .id = .Identifier },
+        base: Node = .identifier,
         token: TokenIndex,
 
         pub fn iterate(self: *const Identifier, index: usize) ?*Node {
@@ -975,7 +978,7 @@ pub const Node = struct {
     /// TODO have a flags field for the optional nodes, and have them appended
     /// before or after the parameters in memory.
     pub const FnProto = struct {
-        base: Node = Node{ .id = .FnProto },
+        base: Node = .fn_proto,
         doc_comments: ?*DocComment,
         visib_token: ?TokenIndex,
         fn_token: TokenIndex,
@@ -1134,7 +1137,7 @@ pub const Node = struct {
     };
 
     pub const AnyFrameType = struct {
-        base: Node = Node{ .id = .AnyFrameType },
+        base: Node = .any_frame_type,
         anyframe_token: TokenIndex,
         result: ?Result,
 
@@ -1166,7 +1169,7 @@ pub const Node = struct {
 
     /// The statements of the block follow Block directly in memory.
     pub const Block = struct {
-        base: Node = Node{ .id = .Block },
+        base: Node = .block,
         statements_len: NodeIndex,
         lbrace: TokenIndex,
         rbrace: TokenIndex,
@@ -1220,7 +1223,7 @@ pub const Node = struct {
     };
 
     pub const Defer = struct {
-        base: Node = Node{ .id = .Defer },
+        base: Node = .defer_stmt,
         defer_token: TokenIndex,
         payload: ?*Node,
         expr: *Node,
@@ -1244,7 +1247,7 @@ pub const Node = struct {
     };
 
     pub const Comptime = struct {
-        base: Node = Node{ .id = .Comptime },
+        base: Node = .comptime_expr,
         doc_comments: ?*DocComment,
         comptime_token: TokenIndex,
         expr: *Node,
@@ -1268,7 +1271,7 @@ pub const Node = struct {
     };
 
     pub const Nosuspend = struct {
-        base: Node = Node{ .id = .Nosuspend },
+        base: Node = .nosuspend_expr,
         nosuspend_token: TokenIndex,
         expr: *Node,
 
@@ -1291,7 +1294,7 @@ pub const Node = struct {
     };
 
     pub const Payload = struct {
-        base: Node = Node{ .id = .Payload },
+        base: Node = .payload,
         lpipe: TokenIndex,
         error_symbol: *Node,
         rpipe: TokenIndex,
@@ -1315,7 +1318,7 @@ pub const Node = struct {
     };
 
     pub const PointerPayload = struct {
-        base: Node = Node{ .id = .PointerPayload },
+        base: Node = .pointer_payload,
         lpipe: TokenIndex,
         ptr_token: ?TokenIndex,
         value_symbol: *Node,
@@ -1340,7 +1343,7 @@ pub const Node = struct {
     };
 
     pub const PointerIndexPayload = struct {
-        base: Node = Node{ .id = .PointerIndexPayload },
+        base: Node = .pointer_index_payload,
         lpipe: TokenIndex,
         ptr_token: ?TokenIndex,
         value_symbol: *Node,
@@ -1371,7 +1374,7 @@ pub const Node = struct {
     };
 
     pub const Else = struct {
-        base: Node = Node{ .id = .Else },
+        base: Node = .else_expr,
         else_token: TokenIndex,
         payload: ?*Node,
         body: *Node,
@@ -1402,7 +1405,7 @@ pub const Node = struct {
     /// The cases node pointers are found in memory after Switch.
     /// They must be SwitchCase or SwitchElse nodes.
     pub const Switch = struct {
-        base: Node = Node{ .id = .Switch },
+        base: Node = .switch_expr,
         switch_token: TokenIndex,
         rbrace: TokenIndex,
         cases_len: NodeIndex,
@@ -1456,7 +1459,7 @@ pub const Node = struct {
 
     /// Items sub-nodes appear in memory directly following SwitchCase.
     pub const SwitchCase = struct {
-        base: Node = Node{ .id = .SwitchCase },
+        base: Node = .switch_case,
         arrow_token: TokenIndex,
         payload: ?*Node,
         expr: *Node,
@@ -1514,7 +1517,7 @@ pub const Node = struct {
     };
 
     pub const SwitchElse = struct {
-        base: Node = Node{ .id = .SwitchElse },
+        base: Node = .switch_else,
         token: TokenIndex,
 
         pub fn iterate(self: *const SwitchElse, index: usize) ?*Node {
@@ -1531,7 +1534,7 @@ pub const Node = struct {
     };
 
     pub const While = struct {
-        base: Node = Node{ .id = .While },
+        base: Node = .while_expr,
         label: ?TokenIndex,
         inline_token: ?TokenIndex,
         while_token: TokenIndex,
@@ -1590,7 +1593,7 @@ pub const Node = struct {
     };
 
     pub const For = struct {
-        base: Node = Node{ .id = .For },
+        base: Node = .for_expr,
         label: ?TokenIndex,
         inline_token: ?TokenIndex,
         for_token: TokenIndex,
@@ -1641,7 +1644,7 @@ pub const Node = struct {
     };
 
     pub const If = struct {
-        base: Node = Node{ .id = .If },
+        base: Node = .if_expr,
         if_token: TokenIndex,
         condition: *Node,
         payload: ?*Node,
@@ -1684,7 +1687,7 @@ pub const Node = struct {
     };
 
     pub const InfixOp = struct {
-        base: Node = Node{ .id = .InfixOp },
+        base: Node = .infix_op,
         op_token: TokenIndex,
         lhs: *Node,
         op: Op,
@@ -1810,19 +1813,19 @@ pub const Node = struct {
         }
     };
 
-    pub const AddressOf = SimplePrefixOp(.AddressOf);
-    pub const Await = SimplePrefixOp(.Await);
-    pub const BitNot = SimplePrefixOp(.BitNot);
-    pub const BoolNot = SimplePrefixOp(.BoolNot);
-    pub const OptionalType = SimplePrefixOp(.OptionalType);
-    pub const Negation = SimplePrefixOp(.Negation);
-    pub const NegationWrap = SimplePrefixOp(.NegationWrap);
-    pub const Resume = SimplePrefixOp(.Resume);
-    pub const Try = SimplePrefixOp(.Try);
+    pub const AddressOf = SimplePrefixOp(.address_of);
+    pub const Await = SimplePrefixOp(.await_expr);
+    pub const BitNot = SimplePrefixOp(.bit_not);
+    pub const BoolNot = SimplePrefixOp(.bool_not);
+    pub const OptionalType = SimplePrefixOp(.optional_type);
+    pub const Negation = SimplePrefixOp(.negation);
+    pub const NegationWrap = SimplePrefixOp(.negation_wrap);
+    pub const Resume = SimplePrefixOp(.resume_stmt);
+    pub const Try = SimplePrefixOp(.try_expr);
 
-    pub fn SimplePrefixOp(comptime tag: Id) type {
+    pub fn SimplePrefixOp(comptime tag: Node) type {
         return struct {
-            base: Node = Node{ .id = tag },
+            base: Node = tag,
             op_token: TokenIndex,
             rhs: *Node,
 
@@ -1844,7 +1847,7 @@ pub const Node = struct {
     }
 
     pub const ArrayType = struct {
-        base: Node = Node{ .id = .ArrayType },
+        base: Node = .array_type,
         op_token: TokenIndex,
         rhs: *Node,
         len_expr: *Node,
@@ -1871,7 +1874,7 @@ pub const Node = struct {
     };
 
     pub const ArrayTypeSentinel = struct {
-        base: Node = Node{ .id = .ArrayTypeSentinel },
+        base: Node = .array_type_sentinel,
         op_token: TokenIndex,
         rhs: *Node,
         len_expr: *Node,
@@ -1902,7 +1905,7 @@ pub const Node = struct {
     };
 
     pub const PtrType = struct {
-        base: Node = Node{ .id = .PtrType },
+        base: Node = .ptr_type,
         op_token: TokenIndex,
         rhs: *Node,
         /// TODO Add a u8 flags field to Node where it would otherwise be padding, and each bit represents
@@ -1938,7 +1941,7 @@ pub const Node = struct {
     };
 
     pub const SliceType = struct {
-        base: Node = Node{ .id = .SliceType },
+        base: Node = .slice_type,
         op_token: TokenIndex,
         rhs: *Node,
         /// TODO Add a u8 flags field to Node where it would otherwise be padding, and each bit represents
@@ -1974,7 +1977,7 @@ pub const Node = struct {
     };
 
     pub const FieldInitializer = struct {
-        base: Node = Node{ .id = .FieldInitializer },
+        base: Node = .field_initializer,
         period_token: TokenIndex,
         name_token: TokenIndex,
         expr: *Node,
@@ -1999,7 +2002,7 @@ pub const Node = struct {
 
     /// Elements occur directly in memory after ArrayInitializer.
     pub const ArrayInitializer = struct {
-        base: Node = Node{ .id = .ArrayInitializer },
+        base: Node = .array_initializer,
         rtoken: TokenIndex,
         list_len: NodeIndex,
         lhs: *Node,
@@ -2052,7 +2055,7 @@ pub const Node = struct {
 
     /// Elements occur directly in memory after ArrayInitializerDot.
     pub const ArrayInitializerDot = struct {
-        base: Node = Node{ .id = .ArrayInitializerDot },
+        base: Node = .array_initializer_dot,
         dot: TokenIndex,
         rtoken: TokenIndex,
         list_len: NodeIndex,
@@ -2102,7 +2105,7 @@ pub const Node = struct {
 
     /// Elements occur directly in memory after StructInitializer.
     pub const StructInitializer = struct {
-        base: Node = Node{ .id = .StructInitializer },
+        base: Node = .struct_initializer,
         rtoken: TokenIndex,
         list_len: NodeIndex,
         lhs: *Node,
@@ -2155,7 +2158,7 @@ pub const Node = struct {
 
     /// Elements occur directly in memory after StructInitializerDot.
     pub const StructInitializerDot = struct {
-        base: Node = Node{ .id = .StructInitializerDot },
+        base: Node = .struct_initializer_dot,
         dot: TokenIndex,
         rtoken: TokenIndex,
         list_len: NodeIndex,
@@ -2205,7 +2208,7 @@ pub const Node = struct {
 
     /// Parameter nodes directly follow Call in memory.
     pub const Call = struct {
-        base: Node = Node{ .id = .Call },
+        base: Node = .call,
         lhs: *Node,
         rtoken: TokenIndex,
         params_len: NodeIndex,
@@ -2259,7 +2262,7 @@ pub const Node = struct {
     };
 
     pub const SuffixOp = struct {
-        base: Node = Node{ .id = .SuffixOp },
+        base: Node = .suffix_op,
         op: Op,
         lhs: *Node,
         rtoken: TokenIndex,
@@ -2319,7 +2322,7 @@ pub const Node = struct {
     };
 
     pub const GroupedExpression = struct {
-        base: Node = Node{ .id = .GroupedExpression },
+        base: Node = .grouped_expr,
         lparen: TokenIndex,
         expr: *Node,
         rparen: TokenIndex,
@@ -2345,7 +2348,7 @@ pub const Node = struct {
     /// TODO break this into separate Break, Continue, Return AST Nodes to save memory.
     /// Could be further broken into LabeledBreak, LabeledContinue, and ReturnVoid to save even more.
     pub const ControlFlowExpression = struct {
-        base: Node = Node{ .id = .ControlFlowExpression },
+        base: Node = .control_flow_expression,
         ltoken: TokenIndex,
         kind: Kind,
         rhs: ?*Node,
@@ -2400,7 +2403,7 @@ pub const Node = struct {
     };
 
     pub const Suspend = struct {
-        base: Node = Node{ .id = .Suspend },
+        base: Node = .suspend_stmt,
         suspend_token: TokenIndex,
         body: ?*Node,
 
@@ -2429,7 +2432,7 @@ pub const Node = struct {
     };
 
     pub const IntegerLiteral = struct {
-        base: Node = Node{ .id = .IntegerLiteral },
+        base: Node = .integer_literal,
         token: TokenIndex,
 
         pub fn iterate(self: *const IntegerLiteral, index: usize) ?*Node {
@@ -2446,7 +2449,7 @@ pub const Node = struct {
     };
 
     pub const EnumLiteral = struct {
-        base: Node = Node{ .id = .EnumLiteral },
+        base: Node = .enum_literal,
         dot: TokenIndex,
         name: TokenIndex,
 
@@ -2464,7 +2467,7 @@ pub const Node = struct {
     };
 
     pub const FloatLiteral = struct {
-        base: Node = Node{ .id = .FloatLiteral },
+        base: Node = .float_literal,
         token: TokenIndex,
 
         pub fn iterate(self: *const FloatLiteral, index: usize) ?*Node {
@@ -2482,7 +2485,7 @@ pub const Node = struct {
 
     /// Parameters are in memory following BuiltinCall.
     pub const BuiltinCall = struct {
-        base: Node = Node{ .id = .BuiltinCall },
+        base: Node = .builtin_call,
         params_len: NodeIndex,
         builtin_token: TokenIndex,
         rparen_token: TokenIndex,
@@ -2531,7 +2534,7 @@ pub const Node = struct {
     };
 
     pub const StringLiteral = struct {
-        base: Node = Node{ .id = .StringLiteral },
+        base: Node = .string_literal,
         token: TokenIndex,
 
         pub fn iterate(self: *const StringLiteral, index: usize) ?*Node {
@@ -2549,7 +2552,7 @@ pub const Node = struct {
 
     /// The string literal tokens appear directly in memory after MultilineStringLiteral.
     pub const MultilineStringLiteral = struct {
-        base: Node = Node{ .id = .MultilineStringLiteral },
+        base: Node = .multiline_string_literal,
         lines_len: TokenIndex,
 
         /// After this the caller must initialize the lines list.
@@ -2591,7 +2594,7 @@ pub const Node = struct {
     };
 
     pub const CharLiteral = struct {
-        base: Node = Node{ .id = .CharLiteral },
+        base: Node = .char_literal,
         token: TokenIndex,
 
         pub fn iterate(self: *const CharLiteral, index: usize) ?*Node {
@@ -2608,7 +2611,7 @@ pub const Node = struct {
     };
 
     pub const BoolLiteral = struct {
-        base: Node = Node{ .id = .BoolLiteral },
+        base: Node = .bool_literal,
         token: TokenIndex,
 
         pub fn iterate(self: *const BoolLiteral, index: usize) ?*Node {
@@ -2625,7 +2628,7 @@ pub const Node = struct {
     };
 
     pub const NullLiteral = struct {
-        base: Node = Node{ .id = .NullLiteral },
+        base: Node = .null_literal,
         token: TokenIndex,
 
         pub fn iterate(self: *const NullLiteral, index: usize) ?*Node {
@@ -2642,7 +2645,7 @@ pub const Node = struct {
     };
 
     pub const UndefinedLiteral = struct {
-        base: Node = Node{ .id = .UndefinedLiteral },
+        base: Node = .undefined_literal,
         token: TokenIndex,
 
         pub fn iterate(self: *const UndefinedLiteral, index: usize) ?*Node {
@@ -2659,7 +2662,7 @@ pub const Node = struct {
     };
 
     pub const Asm = struct {
-        base: Node = Node{ .id = .Asm },
+        base: Node = .asm_expr,
         asm_token: TokenIndex,
         rparen: TokenIndex,
         volatile_token: ?TokenIndex,
@@ -2779,7 +2782,7 @@ pub const Node = struct {
     };
 
     pub const Unreachable = struct {
-        base: Node = Node{ .id = .Unreachable },
+        base: Node = .unreachable_expr,
         token: TokenIndex,
 
         pub fn iterate(self: *const Unreachable, index: usize) ?*Node {
@@ -2796,7 +2799,7 @@ pub const Node = struct {
     };
 
     pub const ErrorType = struct {
-        base: Node = Node{ .id = .ErrorType },
+        base: Node = .error_type,
         token: TokenIndex,
 
         pub fn iterate(self: *const ErrorType, index: usize) ?*Node {
@@ -2813,7 +2816,7 @@ pub const Node = struct {
     };
 
     pub const AnyType = struct {
-        base: Node = Node{ .id = .AnyType },
+        base: Node = .any_type,
         token: TokenIndex,
 
         pub fn iterate(self: *const AnyType, index: usize) ?*Node {
@@ -2830,7 +2833,7 @@ pub const Node = struct {
     };
 
     pub const DocComment = struct {
-        base: Node = Node{ .id = .DocComment },
+        base: Node = .doc_comment,
         /// Points to the first doc comment token. API users are expected to iterate over the
         /// tokens array, looking for more doc comments, ignoring line comments, and stopping
         /// at the first other token.
@@ -2852,7 +2855,7 @@ pub const Node = struct {
     };
 
     pub const TestDecl = struct {
-        base: Node = Node{ .id = .TestDecl },
+        base: Node = .test_decl,
         doc_comments: ?*DocComment,
         test_token: TokenIndex,
         name: *Node,
@@ -2897,7 +2900,6 @@ pub const PtrInfo = struct {
 
 test "iterate" {
     var root = Node.Root{
-        .base = Node{ .id = Node.Id.Root },
         .decls_len = 0,
         .eof_token = 0,
     };
