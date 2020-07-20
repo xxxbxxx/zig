@@ -617,6 +617,9 @@ fn nodeMayNeedMemoryLocation(start_node: *ast.Node) bool {
             .Period,
             .Sub,
             .SubWrap,
+            .Slice,
+            .Deref,
+            .ArrayAccess,
             => return false,
 
             // Forward the question to a sub-expression.
@@ -627,6 +630,7 @@ fn nodeMayNeedMemoryLocation(start_node: *ast.Node) bool {
             .OrElse => node = node.castTag(.OrElse).?.rhs,
             .Comptime => node = node.castTag(.Comptime).?.expr,
             .Nosuspend => node = node.castTag(.Nosuspend).?.expr,
+            .UnwrapOptional => node = node.castTag(.UnwrapOptional).?.lhs,
 
             // True because these are exactly the expressions we need memory locations for.
             .ArrayInitializer,
@@ -642,7 +646,6 @@ fn nodeMayNeedMemoryLocation(start_node: *ast.Node) bool {
             .Switch,
             .Call,
             .BuiltinCall, // TODO some of these can return false
-            .SuffixOp, // TODO this should be split up
             => return true,
 
             // Depending on AST properties, they may need memory locations.
