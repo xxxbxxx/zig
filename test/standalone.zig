@@ -14,6 +14,7 @@ pub fn addCases(cases: *tests.StandaloneContext) void {
         // TODO zld cannot link shared libraries yet.
         cases.addBuildFile("test/standalone/shared_library/build.zig", .single_build_mode, .single_native_target);
     }
+    cases.addBuildFile("test/standalone/mix_c_files/build.zig", .all_build_modes, .has_cross_targets);
     cases.addBuildFile("test/standalone/mix_o_files/build.zig", .single_build_mode, .single_native_target);
     cases.addBuildFile("test/standalone/global_linkage/build.zig", .single_build_mode, .single_native_target);
     cases.addBuildFile("test/standalone/static_c_lib/build.zig", .single_build_mode, .single_native_target);
