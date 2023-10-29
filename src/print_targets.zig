@@ -79,9 +79,11 @@ pub fn cmdTargets(
     try jws.objectField("glibc");
     try jws.beginArray();
     for (glibc_abi.all_versions) |ver| {
-        const tmp = try std.fmt.allocPrint(allocator, "{}", .{ver});
-        defer allocator.free(tmp);
-        try jws.write(tmp);
+        if (glibc.isSupportedGlibcVersion(ver)) {
+            const tmp = try std.fmt.allocPrint(allocator, "{}", .{ver});
+            defer allocator.free(tmp);
+            try jws.write(tmp);
+        }
     }
     try jws.endArray();
 

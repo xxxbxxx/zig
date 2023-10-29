@@ -20,7 +20,7 @@ pub const Lib = struct {
 };
 
 pub const ABI = struct {
-    all_versions: []const Version,
+    all_versions: []const Version, // all defined versions (one abilist from v2.0.0 up to current)
     all_targets: []const target_util.ArchOsAbi,
     /// The bytes from the file verbatim, starting from the u16 number
     /// of function inclusions.
@@ -741,6 +741,11 @@ pub fn buildSharedObjects(comp: *Compilation, prog_node: *std.Progress.Node) !vo
         break :blk latest_index;
     };
 
+    if (!isSupportedGlibcVersion(target_version)) { // only a subset of all_versions are supported
+        log.warn("Unsupported target glibc version: {}", .{target_version});
+        return error.InvalidTargetGLibCVersion;
+    }
+
     {
         var map_contents = std.ArrayList(u8).init(arena);
         for (metadata.all_versions[0 .. target_ver_index + 1]) |ver| {
@@ -1130,4 +1135,10 @@ pub fn needsCrtiCrtn(target: std.Target) bool {
         .riscv32, .riscv64 => false,
         else => true,
     };
+}
+
+// Glibc v2.17 is the oldest supported linking target due to dependencies
+// from the Zig standard library.
+pub fn isSupportedGlibcVersion(ver: Version) bool {
+    return (ver.major > 2) or ((ver.major == 2) and (ver.minor >= 17));
 }
