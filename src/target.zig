@@ -11,7 +11,7 @@ pub const ArchOsAbi = struct {
 };
 
 pub const available_libcs = [_]ArchOsAbi{
-    .{ .arch = .aarch64_be, .os = .linux, .abi = .gnu },
+    .{ .arch = .aarch64_be, .os = .linux, .abi = .gnu }, // glibc aarch64 v2.17+
     .{ .arch = .aarch64_be, .os = .linux, .abi = .musl },
     .{ .arch = .aarch64_be, .os = .windows, .abi = .gnu },
     .{ .arch = .aarch64, .os = .linux, .abi = .gnu },
@@ -51,14 +51,14 @@ pub const available_libcs = [_]ArchOsAbi{
     .{ .arch = .mips, .os = .linux, .abi = .gnueabi },
     .{ .arch = .mips, .os = .linux, .abi = .gnueabihf },
     .{ .arch = .mips, .os = .linux, .abi = .musl },
-    .{ .arch = .powerpc64le, .os = .linux, .abi = .gnu },
+    .{ .arch = .powerpc64le, .os = .linux, .abi = .gnu }, // glibc powerpc64le v2.19+
     .{ .arch = .powerpc64le, .os = .linux, .abi = .musl },
     .{ .arch = .powerpc64, .os = .linux, .abi = .gnu },
     .{ .arch = .powerpc64, .os = .linux, .abi = .musl },
     .{ .arch = .powerpc, .os = .linux, .abi = .gnueabi },
     .{ .arch = .powerpc, .os = .linux, .abi = .gnueabihf },
     .{ .arch = .powerpc, .os = .linux, .abi = .musl },
-    .{ .arch = .riscv64, .os = .linux, .abi = .gnu },
+    .{ .arch = .riscv64, .os = .linux, .abi = .gnu }, // glibc riscv v2.27+
     .{ .arch = .riscv64, .os = .linux, .abi = .musl },
     .{ .arch = .s390x, .os = .linux, .abi = .gnu },
     .{ .arch = .s390x, .os = .linux, .abi = .musl },

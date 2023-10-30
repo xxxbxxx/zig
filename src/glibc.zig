@@ -746,6 +746,8 @@ pub fn buildSharedObjects(comp: *Compilation, prog_node: *std.Progress.Node) !vo
         return error.InvalidTargetGLibCVersion;
     }
 
+    try isArchSupportedGlibcVersion(target, target_version);
+
     {
         var map_contents = std.ArrayList(u8).init(arena);
         for (metadata.all_versions[0 .. target_ver_index + 1]) |ver| {
@@ -1141,4 +1143,44 @@ pub fn needsCrtiCrtn(target: std.Target) bool {
 // from the Zig standard library.
 pub fn isSupportedGlibcVersion(ver: Version) bool {
     return (ver.major > 2) or ((ver.major == 2) and (ver.minor >= 17));
+}
+
+// Check if given glibc version is supported by target's architecture.  Note that
+// target.zig's `available_libcs` should filter out many architectures before this.
+pub fn isArchSupportedGlibcVersion(target: std.Target, ver: Version) !void {
+    // See https://github.com/ziglang/zig/issues/17769
+    switch (target.cpu.arch) {
+        .powerpc64le => {
+            if ((ver.major < 2) or ((ver.major == 2) and (ver.minor < 19))) {
+                log.warn("{s} only supported on glibc v2.19+", .{@tagName(target.cpu.arch)});
+                return error.InvalidTargetGLibCVersion;
+            }
+        },
+        .riscv64 => {
+            if ((ver.major < 2) or ((ver.major == 2) and (ver.minor < 27))) {
+                log.warn("{s} only supported on glibc v2.27+", .{@tagName(target.cpu.arch)});
+                return error.InvalidTargetGLibCVersion;
+            }
+        },
+
+        // For many architectures, glibc support is older than the Zig
+        // minimum (v2.17), so we don't need to check specifics.
+        .aarch64,
+        .aarch64_be,
+        .arm,
+        .m68k,
+        .powerpc64,
+        .powerpc,
+        .sparc,
+        .sparc64,
+        .x86,
+        .x86_64,
+        => return,
+
+        // Other platforms are ... unknown?
+        else => {
+            log.warn("{s} has undefined glibc support.  Please file a bug.", .{@tagName(target.cpu.arch)});
+            return error.InvalidTargetGLibCVersion;
+        },
+    }
 }
