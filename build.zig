@@ -653,12 +653,13 @@ fn addCmakeCfgOptionsToExe(
             .linux => {
                 // First we try to link against the detected libcxx name. If that doesn't work, we fall
                 // back to -lc++ and cross our fingers.
-                addCxxKnownPath(b, cfg, exe, b.fmt("lib{s}.{s}", .{ cfg.system_libcxx, lib_suffix }), "", need_cpp_includes) catch |err| switch (err) {
-                    error.RequiredLibraryNotFound => {
-                        exe.linkLibCpp();
-                    },
-                    else => |e| return e,
-                };
+                exe.linkLibCpp();
+                //                                addCxxKnownPath(b, cfg, exe, b.fmt("lib{s}.{s}", .{ cfg.system_libcxx, lib_suffix }), "", need_cpp_includes) catch |err| switch (err) {
+                //                                    error.RequiredLibraryNotFound => {
+                //                                        exe.linkLibCpp();
+                //                                    },
+                //                                    else => |e| return e,
+                //                                };
                 exe.linkSystemLibrary("unwind");
             },
             .ios, .macos, .watchos, .tvos => {
