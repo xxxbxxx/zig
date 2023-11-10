@@ -708,17 +708,18 @@ pub const PchOptions = struct {
     cpp_header: bool = false,
 };
 
-pub fn addPrecompiledCHeader(b: *Build, options: PchOptions) *Step.Compile {
+pub fn addPrecompiledCHeader(b: *Build, options: PchOptions, source: Step.Compile.CSourceFile) *Step.Compile {
     const pch = Step.Compile.create(b, .{
         .name = options.name,
         .target = options.target,
         .optimize = options.optimize,
         .kind = .pch,
         .max_rss = options.max_rss,
-        .link_libc = true,
         .use_llvm = true,
     });
+    pch.is_linking_libc = !options.cpp_header;
     pch.is_linking_libcpp = options.cpp_header;
+    pch.addCSourceFile(source);
     return pch;
 }
 

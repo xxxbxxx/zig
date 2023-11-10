@@ -26,8 +26,7 @@ pub fn build(b: *Builder) void {
             .target = target,
             .optimize = mode,
             .cpp_header = false,
-        });
-        pch.addCSourceFile(.{
+        }, .{
             .file = .{ .path = "include_a.h" },
             .flags = &[_][]const u8{},
         });
@@ -57,8 +56,7 @@ pub fn build(b: *Builder) void {
             .target = target,
             .optimize = mode,
             .cpp_header = true,
-        });
-        pch.addCSourceFile(.{
+        }, .{
             .file = .{ .path = "include_a.h" },
             .flags = &[_][]const u8{},
         });

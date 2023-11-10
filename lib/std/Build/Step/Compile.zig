@@ -984,6 +984,8 @@ pub const AddCSourceFilesOptions = struct {
 
 /// Handy when you have many C/C++ source files and want them all to have the same flags.
 pub fn addCSourceFiles(self: *Compile, options: AddCSourceFilesOptions) void {
+    assert(self.kind != .pch); // pch can only be generated from a single C header file
+
     const b = self.step.owner;
     const c_source_files = b.allocator.create(CSourceFiles) catch @panic("OOM");
 
@@ -999,6 +1001,8 @@ pub fn addCSourceFiles(self: *Compile, options: AddCSourceFilesOptions) void {
 }
 
 pub fn addCSourceFile(self: *Compile, source: CSourceFile) void {
+    assert(self.kind != .pch or self.link_objects.items.len == 0); // pch can only be generated from a single C header file
+
     const b = self.step.owner;
     const c_source_file = b.allocator.create(CSourceFile) catch @panic("OOM");
     c_source_file.* = source.dupe(b);
@@ -1115,6 +1119,8 @@ pub fn getEmittedLlvmBc(self: *Compile) LazyPath {
 }
 
 pub fn addAssemblyFile(self: *Compile, source: LazyPath) void {
+    assert(self.kind != .pch); // pch can only be generated from a single C header file
+
     const b = self.step.owner;
     const source_duped = source.dupe(b);
     self.link_objects.append(.{ .assembly_file = source_duped }) catch @panic("OOM");
@@ -1122,17 +1128,22 @@ pub fn addAssemblyFile(self: *Compile, source: LazyPath) void {
 }
 
 pub fn addObjectFile(self: *Compile, source: LazyPath) void {
+    assert(self.kind != .pch); // pch can only be generated from a single C header file
+
     const b = self.step.owner;
     self.link_objects.append(.{ .static_path = source.dupe(b) }) catch @panic("OOM");
     source.addStepDependencies(&self.step);
 }
 
 pub fn addObject(self: *Compile, obj: *Compile) void {
+    assert(self.kind != .pch); // pch can only be generated from a single C header file
+
     assert(obj.kind == .obj);
     self.linkLibraryOrObject(obj);
 }
 
 pub fn addPrecompiledCHeader(self: *Compile, pch: *Compile) void {
+    assert(self.kind != .pch); // pch can only be generated from a single C header file
     assert(pch.kind == .pch);
 
     if (self.precompiled_header != null) @panic("Precompiled header already defined.");
