@@ -527,7 +527,7 @@ pub fn createEmpty(gpa: Allocator, options: link.Options) !*Wasm {
         .name = undefined,
     };
 
-    if (options.use_llvm) {
+    if (options.use_llvm and options.module != null) {
         wasm.llvm_object = try LlvmObject.create(gpa, options);
     }
     return wasm;

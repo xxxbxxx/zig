@@ -271,7 +271,7 @@ pub fn createEmpty(gpa: Allocator, options: link.Options) !*Coff {
         .data_directories = comptime mem.zeroes([coff.IMAGE_NUMBEROF_DIRECTORY_ENTRIES]coff.ImageDataDirectory),
     };
 
-    if (options.use_llvm) {
+    if (options.use_llvm and options.module != null) {
         self.llvm_object = try LlvmObject.create(gpa, options);
     }
     return self;
