@@ -795,7 +795,7 @@ pub const File = struct {
             assert(base.tag == .c);
             return @fieldParentPtr(C, "base", base).flush(comp, prog_node);
         }
-        if (comp.clang_preprocessor_mode == .yes) {
+        if (comp.clang_preprocessor_mode == .yes or comp.clang_preprocessor_mode == .pch) {
             const emit = base.options.emit orelse return; // -fno-emit-bin
             // TODO: avoid extra link step when it's just 1 object file (the `zig cc -c` case)
             // Until then, we do `lld -r -o output.o input.o` even though the output is the same

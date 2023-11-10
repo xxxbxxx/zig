@@ -1638,7 +1638,7 @@ fn buildOutputType(
                             fatal("only one manifest file can be specified, found '{s}' after '{s}'", .{ arg, other });
                         } else manifest_file = arg;
                     },
-                    .assembly, .assembly_with_cpp, .c, .cpp, .h, .ll, .bc, .m, .mm, .cu => {
+                    .assembly, .assembly_with_cpp, .c, .cpp, .h, .hpp, .hm, .hmm, .ll, .bc, .m, .mm, .cu => {
                         try c_source_files.append(.{
                             .src_path = arg,
                             .extra_flags = try arena.dupe([]const u8, extra_cflags.items),
@@ -1669,6 +1669,11 @@ fn buildOutputType(
                 optimize_mode = std.meta.stringToEnum(std.builtin.OptimizeMode, s) orelse
                     fatal("unrecognized optimization mode: '{s}'", .{s});
             }
+
+            // precompiled header syntax: "zig build-obj -x c-header test.h"
+            const emit_pch = ((file_ext == .h or file_ext == .hpp or file_ext == .hm or file_ext == .hmm) and emit_bin != .no);
+            if (emit_pch)
+                clang_preprocessor_mode = .pch;
         },
         .cc, .cpp => {
             if (build_options.only_c) unreachable;
@@ -1690,7 +1695,7 @@ fn buildOutputType(
                 assembly,
                 preprocessor,
             };
-            var c_out_mode: COutMode = .link;
+            var c_out_mode: ?COutMode = null;
             var out_path: ?[]const u8 = null;
             var is_shared_lib = false;
             var linker_args = std.ArrayList([]const u8).init(arena);
@@ -1734,7 +1739,7 @@ fn buildOutputType(
                     },
                     .positional => switch (file_ext orelse
                         Compilation.classifyFileExt(mem.sliceTo(it.only_arg, 0))) {
-                        .assembly, .assembly_with_cpp, .c, .cpp, .ll, .bc, .h, .m, .mm, .cu => {
+                        .assembly, .assembly_with_cpp, .c, .cpp, .ll, .bc, .h, .hpp, .hm, .hmm, .m, .mm, .cu => {
                             try c_source_files.append(.{
                                 .src_path = it.only_arg,
                                 .ext = file_ext, // duped while parsing the args.
@@ -2405,7 +2410,12 @@ fn buildOutputType(
                 }
             }
 
-            switch (c_out_mode) {
+            // precompiled header syntax: "zig cc -x c-header test.h -o test.pch"
+            const emit_pch = ((file_ext == .h or file_ext == .hpp or file_ext == .hm or file_ext == .hmm) and c_out_mode == null);
+            if (emit_pch)
+                c_out_mode = .preprocessor;
+
+            switch (c_out_mode orelse .link) {
                 .link => {
                     output_mode = if (is_shared_lib) .Lib else .Exe;
                     emit_bin = if (out_path) |p| .{ .yes = p } else EmitBin.yes_a_out;
@@ -2454,11 +2464,16 @@ fn buildOutputType(
                         // For example `zig cc` and no args should print the "no input files" message.
                         return process.exit(try clangMain(arena, all_args));
                     }
-                    if (out_path) |p| {
-                        emit_bin = .{ .yes = p };
-                        clang_preprocessor_mode = .yes;
+                    if (emit_pch) {
+                        emit_bin = if (out_path) |p| .{ .yes = p } else .yes_default_path;
+                        clang_preprocessor_mode = .pch;
                     } else {
-                        clang_preprocessor_mode = .stdout;
+                        if (out_path) |p| {
+                            emit_bin = .{ .yes = p };
+                            clang_preprocessor_mode = .yes;
+                        } else {
+                            clang_preprocessor_mode = .stdout;
+                        }
                     }
                 },
             }
@@ -3137,13 +3152,16 @@ fn buildOutputType(
                     },
                 }
             },
-            .basename = try std.zig.binNameAlloc(arena, .{
-                .root_name = root_name,
-                .target = target_info.target,
-                .output_mode = output_mode,
-                .link_mode = link_mode,
-                .version = optional_version,
-            }),
+            .basename = if (clang_preprocessor_mode == .pch)
+                try std.fmt.allocPrint(arena, "{s}.pch", .{root_name})
+            else
+                try std.zig.binNameAlloc(arena, .{
+                    .root_name = root_name,
+                    .target = target_info.target,
+                    .output_mode = output_mode,
+                    .link_mode = link_mode,
+                    .version = optional_version,
+                }),
         },
         .yes => |full_path| b: {
             const basename = fs.path.basename(full_path);
