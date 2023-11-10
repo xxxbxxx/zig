@@ -83,6 +83,7 @@ root_src: ?LazyPath,
 out_lib_filename: []const u8,
 modules: std.StringArrayHashMap(*Module),
 
+precompiled_header: ?*Compile,
 link_objects: ArrayList(LinkObject),
 include_dirs: ArrayList(IncludeDir),
 c_macros: ArrayList([]const u8),
@@ -435,6 +436,7 @@ pub const Kind = enum {
     exe,
     lib,
     obj,
+    pch,
     @"test",
 };
 
@@ -458,6 +460,7 @@ pub fn create(owner: *std.Build, options: Options) *Compile {
             .exe => "zig build-exe",
             .lib => "zig build-lib",
             .obj => "zig build-obj",
+            .pch => "zig build-pch",
             .@"test" => "zig test",
         },
         name_adjusted,
@@ -467,20 +470,24 @@ pub fn create(owner: *std.Build, options: Options) *Compile {
 
     const target_info = NativeTargetInfo.detect(options.target) catch @panic("unhandled error");
 
-    const out_filename = std.zig.binNameAlloc(owner.allocator, .{
-        .root_name = name,
-        .target = target_info.target,
-        .output_mode = switch (options.kind) {
-            .lib => .Lib,
-            .obj => .Obj,
-            .exe, .@"test" => .Exe,
-        },
-        .link_mode = if (options.linkage) |some| @as(std.builtin.LinkMode, switch (some) {
-            .dynamic => .Dynamic,
-            .static => .Static,
-        }) else null,
-        .version = options.version,
-    }) catch @panic("OOM");
+    const out_filename = if (options.kind == .pch)
+        std.fmt.allocPrint(owner.allocator, "{s}.pch", .{name}) catch @panic("OOM")
+    else
+        std.zig.binNameAlloc(owner.allocator, .{
+            .root_name = name,
+            .target = target_info.target,
+            .output_mode = switch (options.kind) {
+                .lib => .Lib,
+                .obj => .Obj,
+                .exe, .@"test" => .Exe,
+                .pch => unreachable,
+            },
+            .link_mode = if (options.linkage) |some| @as(std.builtin.LinkMode, switch (some) {
+                .dynamic => .Dynamic,
+                .static => .Static,
+            }) else null,
+            .version = options.version,
+        }) catch @panic("OOM");
 
     const self = owner.allocator.create(Compile) catch @panic("OOM");
     self.* = .{
@@ -514,6 +521,7 @@ pub fn create(owner: *std.Build, options: Options) *Compile {
         .lib_paths = ArrayList(LazyPath).init(owner.allocator),
         .rpaths = ArrayList(LazyPath).init(owner.allocator),
         .installed_headers = ArrayList(*Step).init(owner.allocator),
+        .precompiled_header = null,
         .c_std = std.Build.CStd.C99,
         .zig_lib_dir = null,
         .main_mod_path = null,
@@ -1124,6 +1132,15 @@ pub fn addObject(self: *Compile, obj: *Compile) void {
     self.linkLibraryOrObject(obj);
 }
 
+pub fn addPrecompiledCHeader(self: *Compile, pch: *Compile) void {
+    assert(pch.kind == .pch);
+
+    if (self.precompiled_header != null) @panic("Precompiled header already defined.");
+    self.precompiled_header = pch;
+
+    pch.getEmittedBin().addStepDependencies(&self.step);
+}
+
 pub fn addAfterIncludePath(self: *Compile, path: LazyPath) void {
     const b = self.step.owner;
     self.include_dirs.append(IncludeDir{ .path_after = path.dupe(b) }) catch @panic("OOM");
@@ -1415,7 +1432,7 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
     const cmd = switch (self.kind) {
         .lib => "build-lib",
         .exe => "build-exe",
-        .obj => "build-obj",
+        .obj, .pch => "build-obj",
         .@"test" => "test",
     };
     try zig_args.append(cmd);
@@ -1429,6 +1446,11 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
 
     if (self.target.ofmt) |ofmt| {
         try zig_args.append(try std.fmt.allocPrint(b.allocator, "-ofmt={s}", .{@tagName(ofmt)}));
+    }
+
+    if (self.kind == .pch) {
+        try zig_args.append("-x");
+        try zig_args.append(if (self.is_linking_libcpp) "c++-header" else "c-header");
     }
 
     switch (self.entry) {
@@ -1482,6 +1504,7 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
             .other_step => |other| switch (other.kind) {
                 .exe => @panic("Cannot link with an executable build artifact"),
                 .@"test" => @panic("Cannot link with a test"),
+                .pch => @panic("Cannot link with a precompiled header file"),
                 .obj => {
                     try zig_args.append(other.getEmittedBin().getPath(b));
                 },
@@ -1578,7 +1601,7 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
             },
 
             .c_source_file => |c_source_file| {
-                if (c_source_file.flags.len == 0) {
+                if (c_source_file.flags.len == 0 and self.precompiled_header == null) {
                     if (prev_has_cflags) {
                         try zig_args.append("-cflags");
                         try zig_args.append("--");
@@ -1589,6 +1612,10 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
                     for (c_source_file.flags) |arg| {
                         try zig_args.append(arg);
                     }
+                    if (self.precompiled_header) |pch| {
+                        try zig_args.append("-include-pch");
+                        try zig_args.append(pch.getEmittedBin().getPath(b));
+                    }
                     try zig_args.append("--");
                     prev_has_cflags = true;
                 }
@@ -1596,7 +1623,7 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
             },
 
             .c_source_files => |c_source_files| {
-                if (c_source_files.flags.len == 0) {
+                if (c_source_files.flags.len == 0 and self.precompiled_header == null) {
                     if (prev_has_cflags) {
                         try zig_args.append("-cflags");
                         try zig_args.append("--");
@@ -1606,6 +1633,10 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
                     try zig_args.append("-cflags");
                     for (c_source_files.flags) |flag| {
                         try zig_args.append(flag);
+                    }
+                    if (self.precompiled_header) |pch| {
+                        try zig_args.append("-include-pch");
+                        try zig_args.append(pch.getEmittedBin().getPath(b));
                     }
                     try zig_args.append("--");
                     prev_has_cflags = true;

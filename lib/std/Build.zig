@@ -700,6 +700,28 @@ pub fn addObject(b: *Build, options: ObjectOptions) *Step.Compile {
     });
 }
 
+pub const PchOptions = struct {
+    name: []const u8,
+    target: CrossTarget,
+    optimize: std.builtin.OptimizeMode,
+    max_rss: usize = 0,
+    cpp_header: bool = false,
+};
+
+pub fn addPrecompiledCHeader(b: *Build, options: PchOptions) *Step.Compile {
+    const pch = Step.Compile.create(b, .{
+        .name = options.name,
+        .target = options.target,
+        .optimize = options.optimize,
+        .kind = .pch,
+        .max_rss = options.max_rss,
+        .link_libc = true,
+        .use_llvm = true,
+    });
+    pch.is_linking_libcpp = options.cpp_header;
+    return pch;
+}
+
 pub const SharedLibraryOptions = struct {
     name: []const u8,
     root_source_file: ?LazyPath = null,
