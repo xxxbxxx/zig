@@ -828,6 +828,27 @@ pub fn addObject(b: *Build, options: ObjectOptions) *Step.Compile {
     });
 }
 
+pub const PchOptions = struct {
+    name: []const u8,
+    max_rss: usize = 0,
+    root_module: *Module,
+};
+
+pub fn addPrecompiledCHeader(b: *Build, options: PchOptions) *Step.Compile {
+    const m = options.root_module;
+
+    // pch can only be generated from a single C header file
+    assert(m.root_source_file == null and m.link_objects.items.len == 1 and m.link_objects.items[0] == .c_source_file);
+
+    return .create(b, .{
+        .name = options.name,
+        .root_module = options.root_module,
+        .kind = .pch,
+        .max_rss = options.max_rss,
+        .use_llvm = true,
+    });
+}
+
 pub const SharedLibraryOptions = struct {
     name: []const u8,
     version: ?std.SemanticVersion = null,

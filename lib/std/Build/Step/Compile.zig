@@ -283,6 +283,7 @@ pub const Kind = enum {
     exe,
     lib,
     obj,
+    pch,
     @"test",
 };
 
@@ -375,6 +376,7 @@ pub fn create(owner: *std.Build, options: Options) *Compile {
             .exe => "zig build-exe",
             .lib => "zig build-lib",
             .obj => "zig build-obj",
+            .pch => "zig build-pch",
             .@"test" => "zig test",
         },
         name_adjusted,
@@ -382,17 +384,21 @@ pub fn create(owner: *std.Build, options: Options) *Compile {
         resolved_target.query.zigTriple(owner.allocator) catch @panic("OOM"),
     });
 
-    const out_filename = std.zig.binNameAlloc(owner.allocator, .{
-        .root_name = name,
-        .target = target,
-        .output_mode = switch (options.kind) {
-            .lib => .Lib,
-            .obj => .Obj,
-            .exe, .@"test" => .Exe,
-        },
-        .link_mode = options.linkage,
-        .version = options.version,
-    }) catch @panic("OOM");
+    const out_filename = if (options.kind == .pch)
+        std.fmt.allocPrint(owner.allocator, "{s}.pch", .{name}) catch @panic("OOM")
+    else
+        std.zig.binNameAlloc(owner.allocator, .{
+            .root_name = name,
+            .target = target,
+            .output_mode = switch (options.kind) {
+                .lib => .Lib,
+                .obj => .Obj,
+                .exe, .@"test" => .Exe,
+                .pch => unreachable,
+            },
+            .link_mode = options.linkage,
+            .version = options.version,
+        }) catch @panic("OOM");
 
     const compile = owner.allocator.create(Compile) catch @panic("OOM");
     compile.* = .{
@@ -1035,6 +1041,7 @@ fn getZigArgs(compile: *Compile, fuzz: bool) ![][]const u8 {
         .lib => "build-lib",
         .exe => "build-exe",
         .obj => "build-obj",
+        .pch => "build-pch",
         .@"test" => "test",
     };
     try zig_args.append(cmd);
@@ -1099,6 +1106,14 @@ fn getZigArgs(compile: *Compile, fuzz: bool) ![][]const u8 {
                 if (mod.link_libc == true) compile.is_linking_libc = true;
                 if (mod.link_libcpp == true) compile.is_linking_libcpp = true;
             }
+        }
+
+        if (compile.kind == .pch) {
+            // precompiled headers must have a single input c-header file.
+            const deps = compile.getCompileDependencies(false);
+            assert(deps.len == 1);
+            const link_objects = deps[0].root_module.link_objects.items;
+            assert(link_objects.len == 1 and link_objects[0] == .c_source_file);
         }
 
         var cli_named_modules = try CliNamedModules.init(arena, compile.root_module);
@@ -1205,6 +1220,7 @@ fn getZigArgs(compile: *Compile, fuzz: bool) ![][]const u8 {
                             switch (other.kind) {
                                 .exe => return step.fail("cannot link with an executable build artifact", .{}),
                                 .@"test" => return step.fail("cannot link with a test", .{}),
+                                .pch => return step.fail("cannot link with a precompiled header file", .{}),
                                 .obj => {
                                     const included_in_lib_or_obj = !my_responsibility and
                                         (dep_compile.kind == .lib or dep_compile.kind == .obj);
