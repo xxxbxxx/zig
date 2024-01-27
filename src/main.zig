@@ -93,6 +93,7 @@ const normal_usage =
     \\  build-exe        Create executable from source or object files
     \\  build-lib        Create library from source or object files
     \\  build-obj        Create object from source or object files
+    \\  build-pch        Create a precompiled header from a c or c++ header
     \\  test             Perform unit testing
     \\  run              Create executable and run immediately
     \\
@@ -275,6 +276,8 @@ fn mainArgs(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
     } else if (mem.eql(u8, cmd, "build-obj")) {
         dev.check(.build_obj_command);
         return buildOutputType(gpa, arena, args, .{ .build = .Obj });
+    } else if (mem.eql(u8, cmd, "build-pch")) {
+        return buildOutputType(gpa, arena, args, .pch);
     } else if (mem.eql(u8, cmd, "test")) {
         dev.check(.test_command);
         return buildOutputType(gpa, arena, args, .zig_test);
@@ -393,6 +396,7 @@ const usage_build_generic =
     \\Usage: zig build-exe   [options] [files]
     \\       zig build-lib   [options] [files]
     \\       zig build-obj   [options] [files]
+    \\       zig build-pch   [options] [file]
     \\       zig test        [options] [files]
     \\       zig run         [options] [files] [-- [args]]
     \\       zig translate-c [options] [file]
@@ -747,6 +751,7 @@ const ArgMode = union(enum) {
     build: std.builtin.OutputMode,
     cc,
     cpp,
+    pch,
     translate_c,
     zig_test,
     run,
@@ -1013,10 +1018,14 @@ fn buildOutputType(
     var n_jobs: ?u32 = null;
 
     switch (arg_mode) {
-        .build, .translate_c, .zig_test, .run => {
+        .build, .translate_c, .zig_test, .run, .pch => {
             switch (arg_mode) {
                 .build => |m| {
                     create_module.opts.output_mode = m;
+                },
+                .pch => {
+                    create_module.opts.output_mode = .Obj;
+                    clang_preprocessor_mode = .pch;
                 },
                 .translate_c => {
                     emit_bin = .no;
@@ -2808,6 +2817,9 @@ fn buildOutputType(
 
     if (arg_mode == .translate_c and create_module.c_source_files.items.len != 1) {
         fatal("translate-c expects exactly 1 source file (found {d})", .{create_module.c_source_files.items.len});
+    }
+    if (arg_mode == .pch and create_module.c_source_files.items.len != 1) {
+        fatal("build-pch expects exactly 1 source file (found {d})", .{create_module.c_source_files.items.len});
     }
 
     if (show_builtin and root_src_file == null) {
