@@ -85,6 +85,12 @@ pub const CSourceLanguage = enum {
     objective_c,
     objective_cpp,
 
+    c_header,
+    cpp_header,
+
+    objective_c_header,
+    objective_cpp_header,
+
     /// Standard assembly
     assembly,
     /// Assembly with the C preprocessor
@@ -96,6 +102,11 @@ pub const CSourceLanguage = enum {
             .cpp => "c++",
             .objective_c => "objective-c",
             .objective_cpp => "objective-c++",
+            .c_header => "c-header",
+            .cpp_header => "c++-header",
+            .objective_c_header => "objective-c-header",
+            .objective_cpp_header => "objective-c++-header",
+
             .assembly => "assembler",
             .assembly_with_preprocessor => "assembler-with-cpp",
         };
@@ -110,6 +121,7 @@ pub const CSourceFiles = struct {
     flags: []const []const u8,
     /// By default, determines language of each file individually based on its file extension
     language: ?CSourceLanguage,
+    precompiled_header: ?LazyPath = null,
 };
 
 pub const CSourceFile = struct {
@@ -117,12 +129,14 @@ pub const CSourceFile = struct {
     flags: []const []const u8 = &.{},
     /// By default, determines language of each file individually based on its file extension
     language: ?CSourceLanguage = null,
+    precompiled_header: ?LazyPath = null,
 
     pub fn dupe(file: CSourceFile, b: *std.Build) CSourceFile {
         return .{
             .file = file.file.dupe(b),
             .flags = b.dupeStrings(file.flags),
             .language = file.language,
+            .precompiled_header = file.precompiled_header,
         };
     }
 };
@@ -409,6 +423,7 @@ pub const AddCSourceFilesOptions = struct {
     flags: []const []const u8 = &.{},
     /// By default, determines language of each file individually based on its file extension
     language: ?CSourceLanguage = null,
+    precompiled_header: ?LazyPath = null,
 };
 
 /// Handy when you have many non-Zig source files and want them all to have the same flags.
@@ -431,6 +446,7 @@ pub fn addCSourceFiles(m: *Module, options: AddCSourceFilesOptions) void {
         .files = b.dupeStrings(options.files),
         .flags = b.dupeStrings(options.flags),
         .language = options.language,
+        .precompiled_header = options.precompiled_header,
     };
     m.link_objects.append(allocator, .{ .c_source_files = c_source_files }) catch @panic("OOM");
 }
