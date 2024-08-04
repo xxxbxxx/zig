@@ -2348,7 +2348,7 @@ pub const ElfModule = struct {
     }
 };
 
-fn getSymbol(di: *Dwarf, allocator: Allocator, address: u64) !std.debug.Symbol {
+pub fn getSymbol(di: *Dwarf, allocator: Allocator, address: u64) !std.debug.Symbol {
     if (di.findCompileUnit(address)) |compile_unit| {
         return .{
             .name = di.getSymbolName(address) orelse "???",

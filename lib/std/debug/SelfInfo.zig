@@ -754,15 +754,15 @@ pub const Module = switch (native_os) {
                 module,
                 relocated_address - coff_section.virtual_address,
             ) orelse "???";
-            const opt_line_info = try self.pdb.?.getLineNumberInfo(
+            const source_loc = try self.pdb.?.getLineNumberInfo(
                 module,
                 relocated_address - coff_section.virtual_address,
             );
 
             return .{
-                .symbol_name = symbol_name,
+                .name = symbol_name,
                 .compile_unit_name = obj_basename,
-                .line_info = opt_line_info,
+                .source_location = source_loc,
             };
         }
 
@@ -995,6 +995,7 @@ fn readCoffDebugInfo(allocator: Allocator, coff_obj: *coff.Coff) !Module {
                 .endian = native_endian,
                 .sections = sections,
                 .is_macho = false,
+                .compile_units_sorted = false,
             };
 
             try Dwarf.open(&dwarf, allocator);
