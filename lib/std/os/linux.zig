@@ -303,6 +303,16 @@ pub const MAP = switch (native_arch) {
     else => @compileError("missing std.os.linux.MAP constants for this architecture"),
 };
 
+pub const REMAP = switch (native_arch) {
+    .x86_64, .x86, .aarch64, .aarch64_be, .arm, .armeb, .thumb, .thumbeb, .riscv32, .riscv64, .loongarch64, .sparc64, .mips, .mipsel, .mips64, .mips64el, .powerpc, .powerpcle, .powerpc64, .powerpc64le => packed struct(u32) {
+        MAYMOVE: bool = false,
+        FIXED: bool = false,
+        DONTUNMAP: bool = false,
+        _: u29 = 0,
+    },
+    else => @compileError("missing std.os.linux.REMAP constants for this architecture"),
+};
+
 pub const O = switch (native_arch) {
     .x86_64 => packed struct(u32) {
         ACCMODE: ACCMODE = .RDONLY,
@@ -937,6 +947,10 @@ pub fn msync(address: [*]const u8, length: usize, flags: i32) usize {
 
 pub fn munmap(address: [*]const u8, length: usize) usize {
     return syscall2(.munmap, @intFromPtr(address), length);
+}
+
+pub fn mremap(old_addr: [*]const u8, old_len: usize, new_len: usize, flags: REMAP, new_addr: ?[*]const u8) usize {
+    return syscall5(.mremap, @intFromPtr(old_addr), old_len, new_len, @as(u32, @bitCast(flags)), @intFromPtr(new_addr));
 }
 
 pub fn poll(fds: [*]pollfd, n: nfds_t, timeout: i32) usize {

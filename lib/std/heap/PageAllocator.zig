@@ -6,6 +6,7 @@ const maxInt = std.math.maxInt;
 const assert = std.debug.assert;
 const native_os = builtin.os.tag;
 const windows = std.os.windows;
+const linux = std.os.linux;
 const posix = std.posix;
 
 pub const vtable = Allocator.VTable{
@@ -88,6 +89,23 @@ fn resize(
     if (new_size_aligned == buf_aligned_len)
         return true;
 
+    if (native_os == .linux) {
+        const new_ptr: [*]u8 = if (builtin.link_libc) ptr: {
+            const ret = std.c.mremap(@ptrCast(@alignCast(buf_unaligned.ptr)), buf_aligned_len, new_size_aligned, .{}, null);
+            if (ret == std.c.MAP_FAILED) return false;
+            break :ptr @ptrCast(ret);
+        } else ptr: {
+            const ret = linux.mremap(buf_unaligned.ptr, buf_aligned_len, new_size_aligned, .{}, null);
+            break :ptr switch (posix.errno(ret)) {
+                .SUCCESS => @ptrFromInt(ret),
+                .INVAL => unreachable, // Invalid parameters.
+                else => return false,
+            };
+        };
+        assert(new_ptr == buf_unaligned.ptr);
+        return true;
+    }
+
     if (new_size_aligned < buf_aligned_len) {
         const ptr = buf_unaligned.ptr + new_size_aligned;
         // TODO: if the next_mmap_addr_hint is within the unmapped range, update it
@@ -95,7 +113,6 @@ fn resize(
         return true;
     }
 
-    // TODO: call mremap
     // TODO: if the next_mmap_addr_hint is within the remapped range, update it
     return false;
 }
